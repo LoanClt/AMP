@@ -82,5 +82,7 @@ def verification(FILE_NAME, mode_information):
     if not debug and mode_information:
         print("RAS")
 
+    print("\n")
+
     return debug
     

@@ -99,6 +99,7 @@ def create_table(FILE_NAME, TEXTE_AMP):
         table.add_column(str(i),LISTE_VALEURS)
         
     print(table)
+    print("\n")
 
 def affichage_spectre(abscisse_df, apres_dazzler_df, passage_df, filtre_df, is_filter):
     x = abscisse_df["Lambda"]
