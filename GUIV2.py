@@ -3,13 +3,16 @@ from tkinter import ttk, messagebox
 import json
 from pathlib import Path
 import copy
-from simu_AMP import simu_AMP1, simu_AMP, bilan_puissance
+import matplotlib
+
+matplotlib.use('Agg')  # Prevent matplotlib from opening windows
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
 from io import StringIO
 import sys
+from simu_AMP import simu_AMP1, simu_AMP, bilan_puissance
 
 
 class JSONConfigEditor:
@@ -185,58 +188,6 @@ class JSONConfigEditor:
         self.results_notebook.add(self.table_frame, text="Results Table")
         self.results_notebook.add(self.graph_frame, text="Graphs")
 
-        # Text widget for table results
-        self.table_text = tk.Text(self.table_frame, wrap=tk.WORD, height=20)
-        self.table_text.pack(fill='both', expand=True)
-
-    def create_simulation_tab(self):
-        # Create simulation tab
-        self.sim_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.sim_tab, text="Simulation")
-
-        # Create left panel for controls
-        left_panel = ttk.Frame(self.sim_tab)
-        left_panel.pack(side='left', fill='y', padx=10, pady=5)
-
-        # Add simulation controls
-        ttk.Label(left_panel, text="Simulation Parameters", font=('Arial', 12, 'bold')).pack(pady=5)
-
-        # Number of points input
-        n_points_frame = ttk.Frame(left_panel)
-        n_points_frame.pack(fill='x', pady=5)
-        ttk.Label(n_points_frame, text="Number of Points:").pack(side='left')
-        self.n_points_entry = ttk.Entry(n_points_frame, width=10)
-        self.n_points_entry.insert(0, "1000")
-        self.n_points_entry.pack(side='left', padx=5)
-
-        # Checkboxes for display options
-        self.show_graphics_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_panel, text="Show Graphics",
-                        variable=self.show_graphics_var).pack(pady=5)
-
-        self.show_info_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(left_panel, text="Show Information",
-                        variable=self.show_info_var).pack(pady=5)
-
-        # Simulate button
-        ttk.Button(left_panel, text="Simulate",
-                   command=self.run_simulation).pack(pady=20)
-
-        # Create right panel for results
-        self.right_panel = ttk.Frame(self.sim_tab)
-        self.right_panel.pack(side='right', fill='both', expand=True, padx=10, pady=5)
-
-        # Create notebook for results
-        self.results_notebook = ttk.Notebook(self.right_panel)
-        self.results_notebook.pack(fill='both', expand=True)
-
-        # Create tabs for each type of result
-        self.table_frame = ttk.Frame(self.results_notebook)
-        self.graph_frame = ttk.Frame(self.results_notebook)
-
-        self.results_notebook.add(self.table_frame, text="Results Table")
-        self.results_notebook.add(self.graph_frame, text="Graphs")
-
         # Create a canvas with scrollbar for the table frame
         self.table_canvas = tk.Canvas(self.table_frame)
         table_scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical",
@@ -276,6 +227,41 @@ class JSONConfigEditor:
 
             self.amp_results[amp] = text_widget
 
+        # Create scrollable canvas for graphs
+        self.graph_canvas = tk.Canvas(self.graph_frame)
+        graph_scrollbar_y = ttk.Scrollbar(self.graph_frame, orient="vertical",
+                                          command=self.graph_canvas.yview)
+        graph_scrollbar_x = ttk.Scrollbar(self.graph_frame, orient="horizontal",
+                                          command=self.graph_canvas.xview)
+
+        self.graph_scroll_frame = ttk.Frame(self.graph_canvas)
+
+        self.graph_scroll_frame.bind(
+            "<Configure>",
+            lambda e: self.graph_canvas.configure(scrollregion=self.graph_canvas.bbox("all"))
+        )
+
+        self.graph_canvas.create_window((0, 0), window=self.graph_scroll_frame, anchor="nw")
+        self.graph_canvas.configure(yscrollcommand=graph_scrollbar_y.set,
+                                    xscrollcommand=graph_scrollbar_x.set)
+
+        # Pack scrollbars and canvas for graphs
+        graph_scrollbar_y.pack(side="right", fill="y")
+        graph_scrollbar_x.pack(side="bottom", fill="x")
+        self.graph_canvas.pack(side="left", fill="both", expand=True)
+
+        # Create a grid layout for graphs
+        self.graph_frames = {}
+        for i, amp in enumerate(['AMP1', 'AMP2', 'AMP3']):
+            frame = ttk.LabelFrame(self.graph_scroll_frame, text=amp)
+            frame.grid(row=i, column=0, padx=5, pady=5, sticky="nsew")
+            self.graph_frames[amp] = frame
+
+        # Configure grid weights
+        self.graph_scroll_frame.grid_columnconfigure(0, weight=1)
+        for i in range(3):
+            self.graph_scroll_frame.grid_rowconfigure(i, weight=1)
+
     def run_simulation(self):
         try:
             # Save current configuration before simulation
@@ -296,12 +282,13 @@ class JSONConfigEditor:
             # Clear previous results
             for text_widget in self.amp_results.values():
                 text_widget.delete(1.0, tk.END)
+                text_widget.config(state='normal')
 
-            for widget in self.graph_frame.winfo_children():
-                widget.destroy()
-
-            # Close any existing matplotlib figures
-            plt.close('all')
+            # Clear previous graphs
+            plt.close('all')  # Close all existing figures
+            for frame in self.graph_frames.values():
+                for widget in frame.winfo_children():
+                    widget.destroy()
 
             # Function to capture stdout and return it
             def capture_output(func, *args):
@@ -311,21 +298,29 @@ class JSONConfigEditor:
                 sys.stdout = sys.__stdout__
                 return result, stdout.getvalue()
 
-            # Run simulations and capture outputs
+            # Run AMP1 simulation
             (data, passage, abscisse_df), amp1_output = capture_output(
                 simu_AMP1, "configTest.json", n_points, show_graphics, show_info
             )
             self.amp_results['AMP1'].insert(tk.END, amp1_output)
+            if show_graphics:
+                self.capture_and_display_graphs('AMP1')
 
+            # Run AMP2 simulation
             (data, passage, abscisse_df), amp2_output = capture_output(
                 simu_AMP, "configTest.json", passage, abscisse_df, "2", n_points, show_graphics, show_info
             )
             self.amp_results['AMP2'].insert(tk.END, amp2_output)
+            if show_graphics:
+                self.capture_and_display_graphs('AMP2')
 
+            # Run AMP3 simulation
             (data, passage, abscisse_df), amp3_output = capture_output(
                 simu_AMP, "configTest.json", passage, abscisse_df, "3", n_points, show_graphics, show_info
             )
             self.amp_results['AMP3'].insert(tk.END, amp3_output)
+            if show_graphics:
+                self.capture_and_display_graphs('AMP3')
 
             # Calculate power balance
             _, power_output = capture_output(
@@ -336,15 +331,9 @@ class JSONConfigEditor:
             for text_widget in self.amp_results.values():
                 text_widget.config(state='disabled')
 
-            # If graphics were generated, display them in the graph tab
+            # Switch to the Graphs tab if graphics were generated
             if show_graphics:
-                figures = [plt.figure(num) for num in plt.get_fignums()]
-                for i, fig in enumerate(figures):
-                    frame = ttk.Frame(self.graph_frame)
-                    frame.pack(fill='both', expand=True)
-                    canvas = FigureCanvasTkAgg(fig, master=frame)
-                    canvas.draw()
-                    canvas.get_tk_widget().pack(fill='both', expand=True)
+                self.results_notebook.select(1)  # Select the Graphs tab
 
             messagebox.showinfo("Success", "Simulation completed successfully!")
 
@@ -353,6 +342,36 @@ class JSONConfigEditor:
             import traceback
             print("Error traceback:")
             traceback.print_exc()
+
+    def capture_and_display_graphs(self, amp_name):
+        """Capture and display the two graphs for a given amplifier"""
+        # Get the current figures
+        figures = [plt.figure(num) for num in plt.get_fignums()]
+        if len(figures) >= 2:  # We expect 2 figures per amplifier
+            # Create a frame for this amplifier's graphs
+            frame = self.graph_frames[amp_name]
+
+            # Configure grid for two columns
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_columnconfigure(1, weight=1)
+
+            # Create and display spectrum graph
+            spectrum_frame = ttk.LabelFrame(frame, text="Spectrum")
+            spectrum_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+            canvas_spectrum = FigureCanvasTkAgg(figures[-2], master=spectrum_frame)
+            canvas_spectrum.draw()
+            canvas_spectrum.get_tk_widget().pack(fill='both', expand=True)
+
+            # Create and display gain graph
+            gain_frame = ttk.LabelFrame(frame, text="Gain")
+            gain_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+            canvas_gain = FigureCanvasTkAgg(figures[-1], master=gain_frame)
+            canvas_gain.draw()
+            canvas_gain.get_tk_widget().pack(fill='both', expand=True)
+
+            # Close the figures after they've been displayed
+            plt.close(figures[-2])
+            plt.close(figures[-1])
 
     def create_control_buttons(self):
         button_frame = ttk.Frame(self.main_container)
@@ -419,6 +438,7 @@ class JSONConfigEditor:
             for param_name, entry in self.entry_fields['BILAN_PUISSANCE'].items():
                 entry.delete(0, tk.END)
                 entry.insert(0, str(self.original_config['BILAN_PUISSANCE'][param_name]))
+
 
 def configEditor():
     root = tk.Tk()
