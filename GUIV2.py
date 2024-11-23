@@ -66,13 +66,14 @@ class JSONConfigEditor:
             messagebox.showerror("Error", f"Failed to save configuration: {str(e)}")
 
     def create_amplifier_tab(self, amp_name):
+        """Create a tab for amplifier configuration with an enhanced layout"""
         # Create tab
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text=amp_name)
         self.tabs[amp_name] = tab
         self.entry_fields[amp_name] = {}
 
-        # Create canvas with scrollbar
+        # Create main canvas with scrollbar
         canvas = tk.Canvas(tab)
         scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
@@ -92,31 +93,152 @@ class JSONConfigEditor:
         # Get configuration sections excluding RESULTATS
         sections = {k: v for k, v in self.current_config[amp_name].items() if k != 'RESULTATS'}
 
-        # Create sections
-        row = 0
-        for section_name, section_data in sections.items():
-            # Section header
-            ttk.Label(scrollable_frame, text=section_name, font=('Arial', 12, 'bold')).grid(
-                row=row, column=0, columnspan=2, pady=10, padx=5, sticky='w'
-            )
-            row += 1
+        # Create a style for section headers
+        style = ttk.Style()
+        style.configure("Section.TLabel", font=('Arial', 12, 'bold'), padding=10)
+        style.configure("Param.TLabel", font=('Arial', 10), padding=5)
 
-            # Create entry fields for each parameter
-            for param_name, param_value in section_data.items():
-                ttk.Label(scrollable_frame, text=param_name).grid(
-                    row=row, column=0, padx=5, pady=2, sticky='w'
-                )
+        # Create header
+        header_frame = ttk.Frame(scrollable_frame)
+        header_frame.pack(fill='x', padx=20, pady=(20, 10))
+        ttk.Label(header_frame,
+                  text=f"{amp_name} Configuration",
+                  font=('Arial', 14, 'bold')).pack()
 
-                entry = ttk.Entry(scrollable_frame, width=30)
-                entry.insert(0, str(param_value))
-                entry.grid(row=row, column=1, padx=5, pady=2)
+        # Create two columns for sections
+        columns_frame = ttk.Frame(scrollable_frame)
+        columns_frame.pack(fill='both', expand=True, padx=20, pady=10)
 
-                # Store entry field reference
-                if section_name not in self.entry_fields[amp_name]:
-                    self.entry_fields[amp_name][section_name] = {}
-                self.entry_fields[amp_name][section_name][param_name] = entry
+        left_column = ttk.Frame(columns_frame)
+        right_column = ttk.Frame(columns_frame)
+        left_column.pack(side='left', fill='both', expand=True, padx=10)
+        right_column.pack(side='right', fill='both', expand=True, padx=10)
 
-                row += 1
+        # Distribute sections between columns
+        section_list = list(sections.items())
+        mid_point = len(section_list) // 2
+
+        # Create sections in left column
+        for section_name, section_data in section_list[:mid_point]:
+            self.create_section(left_column, amp_name, section_name, section_data)
+
+        # Create sections in right column
+        for section_name, section_data in section_list[mid_point:]:
+            self.create_section(right_column, amp_name, section_name, section_data)
+
+    def create_section(self, parent, amp_name, section_name, section_data):
+        """Create a section frame with parameters"""
+        # Create section frame with border and padding
+        section_frame = ttk.LabelFrame(parent, text=section_name, padding=(10, 5))
+        section_frame.pack(fill='x', padx=5, pady=5, ipadx=5, ipady=5)
+
+        # Create a frame for the parameter grid
+        param_frame = ttk.Frame(section_frame)
+        param_frame.pack(fill='x', expand=True)
+
+        # Configure grid columns
+        param_frame.grid_columnconfigure(1, weight=1)  # Make value column expandable
+
+        # Add parameter rows
+        for row, (param_name, param_value) in enumerate(section_data.items()):
+            # Parameter name with tooltip
+            name_label = ttk.Label(param_frame, text=param_name)
+            name_label.grid(row=row, column=0, padx=(5, 10), pady=2, sticky="w")
+            self.create_tooltip(name_label, f"Parameter: {param_name}")
+
+            # Entry field with validation
+            entry = ttk.Entry(param_frame, width=20)
+            entry.insert(0, str(param_value))
+            entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
+
+            # Add validation and auto-formatting
+            self.setup_entry_validation(entry, param_name, param_value)
+
+            # Store entry field reference
+            if section_name not in self.entry_fields[amp_name]:
+                self.entry_fields[amp_name][section_name] = {}
+            self.entry_fields[amp_name][section_name][param_name] = entry
+
+            # Add units or hints if applicable
+            unit = self.get_parameter_unit(param_name)
+            if unit:
+                ttk.Label(param_frame, text=unit).grid(row=row, column=2, padx=(2, 5), pady=2)
+
+    def create_tooltip(self, widget, text):
+        """Create a tooltip for a widget"""
+
+        def show_tooltip(event):
+            tooltip = tk.Toplevel()
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+
+            label = ttk.Label(tooltip, text=text, justify='left',
+                              background="#ffffe0", relief='solid', borderwidth=1)
+            label.pack()
+
+            def hide_tooltip():
+                tooltip.destroy()
+
+            widget.tooltip = tooltip
+            widget.bind('<Leave>', lambda e: hide_tooltip())
+
+        widget.bind('<Enter>', show_tooltip)
+
+    def setup_entry_validation(self, entry, param_name, default_value):
+        """Setup validation and formatting for entry fields"""
+
+        def validate_input(value):
+            if not value:  # Allow empty values
+                return True
+            try:
+                if isinstance(default_value, int):
+                    int(value)
+                elif isinstance(default_value, float):
+                    float(value)
+                return True
+            except ValueError:
+                if 'e' in value.lower():  # Allow scientific notation
+                    try:
+                        float(value)
+                        return True
+                    except ValueError:
+                        return False
+                return False
+
+        def on_focus_out(event):
+            # Format number when focus is lost
+            value = entry.get()
+            if value:
+                try:
+                    if isinstance(default_value, float):
+                        formatted = f"{float(value):.6g}"
+                        entry.delete(0, tk.END)
+                        entry.insert(0, formatted)
+                except ValueError:
+                    pass
+
+        validate_cmd = entry.register(validate_input)
+        entry.config(validate='key', validatecommand=(validate_cmd, '%P'))
+        entry.bind('<FocusOut>', on_focus_out)
+
+    def get_parameter_unit(self, param_name):
+        """Return the unit for a parameter based on its name"""
+        units = {
+            'ENERGIE': 'mJ',
+            'DIAMETRE': 'mm',
+            'LONGUEUR': 'mm',
+            'DUREE': 'ps',
+            'TEMPERATURE': 'K',
+            'FREQUENCE': 'Hz',
+            'PUISSANCE': 'W',
+            'LARGEUR_SPECTRALE': 'nm',
+            'LONGUEUR_ONDE': 'nm',
+        }
+
+        for key, unit in units.items():
+            if key in param_name.upper():
+                return unit
+        return ''
 
     def create_bilan_puissance_tab(self):
         tab = ttk.Frame(self.notebook)
