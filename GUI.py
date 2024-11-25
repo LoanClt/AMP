@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 import json
 from pathlib import Path
 import copy
@@ -14,29 +14,88 @@ from io import StringIO
 import sys
 from simu_AMP import simu_AMP1, simu_AMP, bilan_puissance
 
-
 class JSONConfigEditor:
     def __init__(self, root):
         self.root = root
-        self.root.title("Laser Configuration Editor")
+        self.root.title("Laser Amplification Simulation")
         self.root.geometry("1200x800")
 
-        # Load initial configuration
-        self.original_config = self.load_config()
-        self.current_config = copy.deepcopy(self.original_config)
+        # Initialize config variables as None
+        self.original_config = None
+        self.current_config = None
+        self.config_file_path = None
 
         # Create main container
         self.main_container = ttk.Frame(self.root)
         self.main_container.pack(expand=True, fill='both', padx=10, pady=5)
 
+        # Create initial message and load button
+        self.create_welcome_screen()
+
+        # Initialize other UI components as None
+        self.notebook = None
+        self.tabs = {}
+        self.entry_fields = {}
+        self.sim_tab = None
+        self.results_notebook = None
+
+    def create_welcome_screen(self):
+        """Create the initial welcome screen with load button"""
+        self.welcome_frame = ttk.Frame(self.main_container)
+        self.welcome_frame.pack(expand=True, fill='both')
+
+        welcome_label = ttk.Label(
+            self.welcome_frame,
+            text="Laser Amplification Simulation (v.0.1)\nPlease load a configuration file to begin\n\nloan.challeat@thalesgroup.com",
+            font=('Arial', 14),
+            justify='center'
+        )
+        welcome_label.pack(expand=True, pady=10)
+
+        load_button = ttk.Button(
+            self.welcome_frame,
+            text="Load Configuration",
+            command=self.load_configuration
+        )
+        load_button.pack(pady=20)
+
+    def load_configuration(self):
+        """Handle loading of configuration file"""
+        file_path = filedialog.askopenfilename(
+            title="Select Configuration File",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        )
+
+        if file_path:
+            try:
+                with open(file_path, 'r') as file:
+                    config = json.load(file)
+                
+                # Validate configuration structure
+                required_sections = ['AMP1', 'AMP2', 'AMP3', 'BILAN_PUISSANCE']
+                if not all(section in config for section in required_sections):
+                    raise ValueError("Invalid configuration file format: Missing required sections")
+
+                self.config_file_path = file_path
+                self.original_config = copy.deepcopy(config)
+                self.current_config = copy.deepcopy(config)
+
+                # Remove welcome screen
+                self.welcome_frame.destroy()
+
+                # Create the main UI
+                self.create_main_ui()
+
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to load configuration: {str(e)}")
+
+    def create_main_ui(self):
+        """Create the main UI after configuration is loaded"""
         # Create notebook for tabs
         self.notebook = ttk.Notebook(self.main_container)
         self.notebook.pack(expand=True, fill='both')
 
         # Create tabs for each amplifier
-        self.tabs = {}
-        self.entry_fields = {}
-
         for amp in ['AMP1', 'AMP2', 'AMP3']:
             self.create_amplifier_tab(amp)
 
@@ -46,24 +105,8 @@ class JSONConfigEditor:
         # Create Simulation tab
         self.create_simulation_tab()
 
-        # Create buttons
+        # Create control buttons
         self.create_control_buttons()
-
-    def load_config(self):
-        try:
-            with open('configTest.json', 'r') as file:
-                return json.load(file)
-        except FileNotFoundError:
-            messagebox.showerror("Error", "Configuration file not found!")
-            return {}
-
-    def save_config(self):
-        try:
-            with open('configTest.json', 'w') as file:
-                json.dump(self.current_config, file, indent=4)
-            messagebox.showinfo("Success", "Configuration saved successfully!")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed to save configuration: {str(e)}")
 
     def create_amplifier_tab(self, amp_name):
         """Create a tab for amplifier configuration with an enhanced layout"""
@@ -128,45 +171,35 @@ class JSONConfigEditor:
 
     def create_section(self, parent, amp_name, section_name, section_data):
         """Create a section frame with parameters"""
-        # Create section frame with border and padding
         section_frame = ttk.LabelFrame(parent, text=section_name, padding=(10, 5))
         section_frame.pack(fill='x', padx=5, pady=5, ipadx=5, ipady=5)
 
-        # Create a frame for the parameter grid
         param_frame = ttk.Frame(section_frame)
         param_frame.pack(fill='x', expand=True)
 
-        # Configure grid columns
-        param_frame.grid_columnconfigure(1, weight=1)  # Make value column expandable
+        param_frame.grid_columnconfigure(1, weight=1)
 
-        # Add parameter rows
         for row, (param_name, param_value) in enumerate(section_data.items()):
-            # Parameter name with tooltip
             name_label = ttk.Label(param_frame, text=param_name)
             name_label.grid(row=row, column=0, padx=(5, 10), pady=2, sticky="w")
             self.create_tooltip(name_label, f"Parameter: {param_name}")
 
-            # Entry field with validation
             entry = ttk.Entry(param_frame, width=20)
             entry.insert(0, str(param_value))
             entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
 
-            # Add validation and auto-formatting
             self.setup_entry_validation(entry, param_name, param_value)
 
-            # Store entry field reference
             if section_name not in self.entry_fields[amp_name]:
                 self.entry_fields[amp_name][section_name] = {}
             self.entry_fields[amp_name][section_name][param_name] = entry
 
-            # Add units or hints if applicable
             unit = self.get_parameter_unit(param_name)
             if unit:
                 ttk.Label(param_frame, text=unit).grid(row=row, column=2, padx=(2, 5), pady=2)
 
     def create_tooltip(self, widget, text):
         """Create a tooltip for a widget"""
-
         def show_tooltip(event):
             tooltip = tk.Toplevel()
             tooltip.wm_overrideredirect(True)
@@ -186,9 +219,8 @@ class JSONConfigEditor:
 
     def setup_entry_validation(self, entry, param_name, default_value):
         """Setup validation and formatting for entry fields"""
-
         def validate_input(value):
-            if not value:  # Allow empty values
+            if not value:
                 return True
             try:
                 if isinstance(default_value, int):
@@ -197,7 +229,7 @@ class JSONConfigEditor:
                     float(value)
                 return True
             except ValueError:
-                if 'e' in value.lower():  # Allow scientific notation
+                if 'e' in value.lower():
                     try:
                         float(value)
                         return True
@@ -206,7 +238,6 @@ class JSONConfigEditor:
                 return False
 
         def on_focus_out(event):
-            # Format number when focus is lost
             value = entry.get()
             if value:
                 try:
@@ -241,6 +272,7 @@ class JSONConfigEditor:
         return ''
 
     def create_bilan_puissance_tab(self):
+        """Create the BILAN_PUISSANCE tab"""
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="BILAN_PUISSANCE")
         self.entry_fields['BILAN_PUISSANCE'] = {}
@@ -263,7 +295,7 @@ class JSONConfigEditor:
             row += 1
 
     def create_simulation_tab(self):
-        # Create simulation tab
+        """Create the simulation tab"""
         self.sim_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.sim_tab, text="Simulation")
 
@@ -271,18 +303,18 @@ class JSONConfigEditor:
         left_panel = ttk.Frame(self.sim_tab)
         left_panel.pack(side='left', fill='y', padx=10, pady=5)
 
-        # Add simulation controls
-        ttk.Label(left_panel, text="Simulation Parameters", font=('Arial', 12, 'bold')).pack(pady=5)
+        ttk.Label(left_panel, text="Simulation Parameters",
+                  font=('Arial', 12, 'bold')).pack(pady=5)
 
         # Number of points input
         n_points_frame = ttk.Frame(left_panel)
         n_points_frame.pack(fill='x', pady=5)
         ttk.Label(n_points_frame, text="Number of Points:").pack(side='left')
         self.n_points_entry = ttk.Entry(n_points_frame, width=10)
-        self.n_points_entry.insert(0, "1000")
+        self.n_points_entry.insert(0, "200")
         self.n_points_entry.pack(side='left', padx=5)
 
-        # Checkboxes for display options
+        # Checkboxes
         self.show_graphics_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(left_panel, text="Show Graphics",
                         variable=self.show_graphics_var).pack(pady=5)
@@ -303,14 +335,21 @@ class JSONConfigEditor:
         self.results_notebook = ttk.Notebook(self.right_panel)
         self.results_notebook.pack(fill='both', expand=True)
 
-        # Create tabs for each type of result
+        # Create results tabs
         self.table_frame = ttk.Frame(self.results_notebook)
         self.graph_frame = ttk.Frame(self.results_notebook)
 
         self.results_notebook.add(self.table_frame, text="Results Table")
         self.results_notebook.add(self.graph_frame, text="Graphs")
 
-        # Create a canvas with scrollbar for the table frame
+        # Setup table frame
+        self.setup_table_frame()
+        
+        # Setup graph frame
+        self.setup_graph_frame()
+
+    def setup_table_frame(self):
+        """Setup the table frame with scrollbars"""
         self.table_canvas = tk.Canvas(self.table_frame)
         table_scrollbar = ttk.Scrollbar(self.table_frame, orient="vertical",
                                         command=self.table_canvas.yview)
@@ -328,12 +367,11 @@ class JSONConfigEditor:
         self.table_canvas.configure(yscrollcommand=table_scrollbar.set,
                                     xscrollcommand=table_scrollbar_x.set)
 
-        # Pack scrollbars and canvas
         table_scrollbar.pack(side="right", fill="y")
         table_scrollbar_x.pack(side="bottom", fill="x")
         self.table_canvas.pack(side="left", fill="both", expand=True)
 
-        # MMMMMMMMMMMMmmMMMMMMMMMMMM
+        # Create text widgets for each amplifier
         self.amp_results = {}
         for amp in ['AMP1', 'AMP2', 'AMP3']:
             frame = ttk.LabelFrame(self.table_scroll_frame, text=f"{amp} Results")
@@ -342,7 +380,6 @@ class JSONConfigEditor:
             text_widget = tk.Text(frame, wrap=tk.NONE, height=15)
             text_widget.pack(fill='both', expand=True)
 
-            # Add horizontal scrollbar for each text widget
             h_scrollbar = ttk.Scrollbar(frame, orient="horizontal", command=text_widget.xview)
             h_scrollbar.pack(fill='x')
             text_widget.configure(xscrollcommand=h_scrollbar.set)
@@ -356,7 +393,6 @@ class JSONConfigEditor:
         self.power_text = tk.Text(power_frame, wrap=tk.NONE, height=5)
         self.power_text.pack(fill='both', expand=True)
 
-        # Add horizontal scrollbar for power balance
         power_h_scrollbar = ttk.Scrollbar(power_frame, orient="horizontal",
                                           command=self.power_text.xview)
         power_h_scrollbar.pack(fill='x')
@@ -369,13 +405,13 @@ class JSONConfigEditor:
         self.verify_text = tk.Text(verify_frame, wrap=tk.NONE, height=8)
         self.verify_text.pack(fill='both', expand=True)
 
-        # Add horizontal scrollbar for verification
         verify_h_scrollbar = ttk.Scrollbar(verify_frame, orient="horizontal",
                                            command=self.verify_text.xview)
         verify_h_scrollbar.pack(fill='x')
         self.verify_text.configure(xscrollcommand=verify_h_scrollbar.set)
 
-        # Create scrollable canvas for graphs
+    def setup_graph_frame(self):
+        """Setup the graph frame with scrollbars"""
         self.graph_canvas = tk.Canvas(self.graph_frame)
         graph_scrollbar_y = ttk.Scrollbar(self.graph_frame, orient="vertical",
                                           command=self.graph_canvas.yview)
@@ -393,29 +429,31 @@ class JSONConfigEditor:
         self.graph_canvas.configure(yscrollcommand=graph_scrollbar_y.set,
                                     xscrollcommand=graph_scrollbar_x.set)
 
-        # Pack scrollbars and canvas for graphs
         graph_scrollbar_y.pack(side="right", fill="y")
         graph_scrollbar_x.pack(side="bottom", fill="x")
         self.graph_canvas.pack(side="left", fill="both", expand=True)
 
-        # Create a grid layout for graphs
+        # Create frames for graphs
         self.graph_frames = {}
         for i, amp in enumerate(['AMP1', 'AMP2', 'AMP3']):
             frame = ttk.LabelFrame(self.graph_scroll_frame, text=amp)
             frame.grid(row=i, column=0, padx=5, pady=5, sticky="nsew")
             self.graph_frames[amp] = frame
 
-        # Configure grid weights
         self.graph_scroll_frame.grid_columnconfigure(0, weight=1)
         for i in range(3):
             self.graph_scroll_frame.grid_rowconfigure(i, weight=1)
 
     def run_simulation(self):
+        """Run the simulation with the current configuration"""
+        if not self.config_file_path:
+            messagebox.showerror("Error", "No configuration file loaded")
+            return
+
         try:
             # Save current configuration before simulation
             self.update_config()
 
-            # Get simulation parameters and convert n_points to integer
             try:
                 n_points = int(self.n_points_entry.get())
                 if n_points <= 0:
@@ -437,12 +475,11 @@ class JSONConfigEditor:
             self.verify_text.config(state='normal')
 
             # Clear previous graphs
-            plt.close('all')  # Close all existing figures
+            plt.close('all')
             for frame in self.graph_frames.values():
                 for widget in frame.winfo_children():
                     widget.destroy()
 
-            # Function to capture stdout and return it
             def capture_output(func, *args):
                 stdout = StringIO()
                 sys.stdout = stdout
@@ -450,53 +487,49 @@ class JSONConfigEditor:
                 sys.stdout = sys.__stdout__
                 return result, stdout.getvalue()
 
-            # Run AMP1 simulation
+            # Run simulations
             (data, passage, abscisse_df), amp1_output = capture_output(
-                simu_AMP1, "configTest.json", n_points, show_graphics, show_info
+                simu_AMP1, self.config_file_path, n_points, show_graphics, show_info
             )
             self.amp_results['AMP1'].insert(tk.END, amp1_output)
             if show_graphics:
                 self.capture_and_display_graphs('AMP1')
 
-            # Run AMP2 simulation
             (data, passage, abscisse_df), amp2_output = capture_output(
-                simu_AMP, "configTest.json", passage, abscisse_df, "2", n_points, show_graphics, show_info
+                simu_AMP, self.config_file_path, passage, abscisse_df, "2", n_points, show_graphics, show_info
             )
             self.amp_results['AMP2'].insert(tk.END, amp2_output)
             if show_graphics:
                 self.capture_and_display_graphs('AMP2')
 
-            # Run AMP3 simulation
             (data, passage, abscisse_df), amp3_output = capture_output(
-                simu_AMP, "configTest.json", passage, abscisse_df, "3", n_points, show_graphics, show_info
+                simu_AMP, self.config_file_path, passage, abscisse_df, "3", n_points, show_graphics, show_info
             )
             self.amp_results['AMP3'].insert(tk.END, amp3_output)
             if show_graphics:
                 self.capture_and_display_graphs('AMP3')
 
-
-            # Calculate and display power balance
+            # Calculate power balance
             _, power_output = capture_output(
-                bilan_puissance, "configTest.json", show_info
+                bilan_puissance, self.config_file_path, show_info
             )
             self.power_text.insert(tk.END, power_output)
 
-            # Run and display verification
+            # Run verification
             from error_checker import verification
             _, verify_output = capture_output(
-                verification, "configTest.json", show_info
+                verification, self.config_file_path, show_info
             )
             self.verify_text.insert(tk.END, verify_output)
 
-            # Make all text widgets read-only
+            # Make text widgets read-only
             for text_widget in self.amp_results.values():
                 text_widget.config(state='disabled')
             self.power_text.config(state='disabled')
             self.verify_text.config(state='disabled')
 
-            # Switch to the Graphs tab if graphics were generated
             if show_graphics:
-                self.results_notebook.select(1)  # Select the Graphs tab
+                self.results_notebook.select(1)
 
             messagebox.showinfo("Success", "Simulation completed successfully!")
 
@@ -507,62 +540,76 @@ class JSONConfigEditor:
             traceback.print_exc()
 
     def capture_and_display_graphs(self, amp_name):
-        """Capture and display the two graphs for a given amplifier"""
-        # Get the current figures
+        """Capture and display graphs for an amplifier"""
         figures = [plt.figure(num) for num in plt.get_fignums()]
-        if len(figures) >= 2:  # We expect 2 figures per amplifier
-            # Create a frame for this amplifier's graphs
+        if len(figures) >= 2:
             frame = self.graph_frames[amp_name]
 
-            # Configure grid for two columns
             frame.grid_columnconfigure(0, weight=1)
             frame.grid_columnconfigure(1, weight=1)
 
-            # Create and display spectrum graph
             spectrum_frame = ttk.LabelFrame(frame, text="Spectrum")
             spectrum_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
             canvas_spectrum = FigureCanvasTkAgg(figures[-2], master=spectrum_frame)
             canvas_spectrum.draw()
             canvas_spectrum.get_tk_widget().pack(fill='both', expand=True)
 
-            # Create and display gain graph
             gain_frame = ttk.LabelFrame(frame, text="Gain")
             gain_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
             canvas_gain = FigureCanvasTkAgg(figures[-1], master=gain_frame)
             canvas_gain.draw()
             canvas_gain.get_tk_widget().pack(fill='both', expand=True)
 
-            # Close the figures after they've been displayed
             plt.close(figures[-2])
             plt.close(figures[-1])
 
     def create_control_buttons(self):
+        """Create control buttons"""
         button_frame = ttk.Frame(self.main_container)
         button_frame.pack(fill='x', pady=10)
 
+        ttk.Button(button_frame, text="Load Configuration",
+                   command=self.load_new_configuration).pack(side='left', padx=5)
         ttk.Button(button_frame, text="Save Changes",
                    command=self.update_config).pack(side='left', padx=5)
         ttk.Button(button_frame, text="Reset to Original",
                    command=self.reset_config).pack(side='left', padx=5)
 
+    def load_new_configuration(self):
+        """Handle loading a new configuration"""
+        if messagebox.askyesno("Load New Configuration", 
+                              "Loading a new configuration will close the current one. Continue?"):
+            for widget in self.main_container.winfo_children():
+                widget.destroy()
+            
+            self.original_config = None
+            self.current_config = None
+            self.config_file_path = None
+            self.notebook = None
+            self.tabs = {}
+            self.entry_fields = {}
+            
+            self.create_welcome_screen()
+
     def update_config(self):
+        """Update and save the configuration"""
+        if not self.config_file_path:
+            messagebox.showerror("Error", "No configuration file loaded")
+            return
+
         try:
-            # Update amplifier configurations
             for amp_name in ['AMP1', 'AMP2', 'AMP3']:
                 for section_name, section_fields in self.entry_fields[amp_name].items():
                     for param_name, entry in section_fields.items():
                         value = entry.get()
-                        # Convert to appropriate type
                         try:
                             if '.' in value:
                                 value = float(value)
                             else:
                                 value = int(value)
                         except ValueError:
-                            # Keep as string if conversion fails (e.g., for scientific notation)
                             if value.lower() in ['true', 'false']:
                                 value = value.lower() == 'true'
-                            # Handle scientific notation
                             elif 'e' in value.lower():
                                 try:
                                     value = float(value)
@@ -570,7 +617,6 @@ class JSONConfigEditor:
                                     pass
                         self.current_config[amp_name][section_name][param_name] = value
 
-            # Update BILAN_PUISSANCE configuration
             for param_name, entry in self.entry_fields['BILAN_PUISSANCE'].items():
                 value = entry.get()
                 try:
@@ -582,20 +628,16 @@ class JSONConfigEditor:
                     pass
                 self.current_config['BILAN_PUISSANCE'][param_name] = value
 
-            # Save the current configuration
-            self.save_config()
+            with open(self.config_file_path, 'w') as file:
+                json.dump(self.current_config, file, indent=4)
 
-            # Update calculated values for each amplifier
             from update_config import update_config
             for amp_name in ['AMP1', 'AMP2', 'AMP3']:
-                # Update the configuration file with new calculated values
-                updated_config = update_config("configTest.json", amp_name)
+                updated_config = update_config(self.config_file_path, amp_name)
                 
-                # Reload the updated configuration
-                with open('configTest.json', 'r') as file:
+                with open(self.config_file_path, 'r') as file:
                     self.current_config = json.load(file)
                 
-                # Update the display for the current amplifier
                 self.update_amplifier_display(amp_name)
 
             messagebox.showinfo("Success", "Configuration saved and updated successfully!")
@@ -605,27 +647,22 @@ class JSONConfigEditor:
             raise
 
     def update_amplifier_display(self, amp_name):
-        """Update the display of calculated values for an amplifier"""
+        """Update the display of an amplifier"""
         for section_name, section_fields in self.entry_fields[amp_name].items():
             for param_name, entry in section_fields.items():
-                # Get the new value from the current configuration
                 new_value = self.current_config[amp_name][section_name][param_name]
-                
-                # Update the entry field
                 entry.delete(0, tk.END)
                 entry.insert(0, str(new_value))
 
-                # Change background color briefly to indicate update
                 original_bg = entry.cget('background')
                 entry.configure(background='lightgreen')
-                
-                # Schedule return to original color after 500ms
                 self.root.after(500, lambda e=entry, bg=original_bg: e.configure(background=bg))
 
     def reset_config(self):
+        """Reset configuration to original values"""
         if messagebox.askyesno("Confirm Reset", "Are you sure you want to reset all values to original?"):
             self.current_config = copy.deepcopy(self.original_config)
-            # Reset all entry fields
+            
             for amp_name in ['AMP1', 'AMP2', 'AMP3']:
                 for section_name, section_fields in self.entry_fields[amp_name].items():
                     for param_name, entry in section_fields.items():
@@ -636,8 +673,7 @@ class JSONConfigEditor:
                 entry.delete(0, tk.END)
                 entry.insert(0, str(self.original_config['BILAN_PUISSANCE'][param_name]))
 
-
-def configEditor():
+def configEditor2():
     root = tk.Tk()
     app = JSONConfigEditor(root)
-    root.mainloop() 
+    root.mainloop()
