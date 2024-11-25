@@ -582,11 +582,45 @@ class JSONConfigEditor:
                     pass
                 self.current_config['BILAN_PUISSANCE'][param_name] = value
 
+            # Save the current configuration
             self.save_config()
+
+            # Update calculated values for each amplifier
+            from update_config import update_config
+            for amp_name in ['AMP1', 'AMP2', 'AMP3']:
+                # Update the configuration file with new calculated values
+                updated_config = update_config("configTest.json", amp_name)
+                
+                # Reload the updated configuration
+                with open('configTest.json', 'r') as file:
+                    self.current_config = json.load(file)
+                
+                # Update the display for the current amplifier
+                self.update_amplifier_display(amp_name)
+
+            messagebox.showinfo("Success", "Configuration saved and updated successfully!")
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to update configuration: {str(e)}")
             raise
+
+    def update_amplifier_display(self, amp_name):
+        """Update the display of calculated values for an amplifier"""
+        for section_name, section_fields in self.entry_fields[amp_name].items():
+            for param_name, entry in section_fields.items():
+                # Get the new value from the current configuration
+                new_value = self.current_config[amp_name][section_name][param_name]
+                
+                # Update the entry field
+                entry.delete(0, tk.END)
+                entry.insert(0, str(new_value))
+
+                # Change background color briefly to indicate update
+                original_bg = entry.cget('background')
+                entry.configure(background='lightgreen')
+                
+                # Schedule return to original color after 500ms
+                self.root.after(500, lambda e=entry, bg=original_bg: e.configure(background=bg))
 
     def reset_config(self):
         if messagebox.askyesno("Confirm Reset", "Are you sure you want to reset all values to original?"):
@@ -606,8 +640,4 @@ class JSONConfigEditor:
 def configEditor():
     root = tk.Tk()
     app = JSONConfigEditor(root)
-    root.mainloop()
-
-
-if __name__ == "__main__":
-    configEditor()
+    root.mainloop() 
