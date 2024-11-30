@@ -6,7 +6,7 @@ from pathlib import Path
 import copy
 import matplotlib
 
-matplotlib.use('Agg')  
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
@@ -15,11 +15,15 @@ from io import StringIO
 import sys
 from simu_AMP import simu_AMP1, simu_AMP, bilan_puissance
 
+
 class JSONConfigEditor:
     def __init__(self, root):
         self.root = root
         self.root.title("Laser Amplification Simulation")
         self.root.geometry("1200x800")
+
+        # Add number of amplifiers attribute
+        self.num_amps = None
 
         self.original_config = None
         self.current_config = None
@@ -28,7 +32,8 @@ class JSONConfigEditor:
         self.main_container = ttk.Frame(self.root)
         self.main_container.pack(expand=True, fill='both', padx=10, pady=5)
 
-        self.create_welcome_screen()
+        # Start with dialog instead of welcome screen
+        self.create_amp_selection_dialog()
 
         self.notebook = None
         self.tabs = {}
@@ -36,13 +41,48 @@ class JSONConfigEditor:
         self.sim_tab = None
         self.results_notebook = None
 
+    def create_amp_selection_dialog(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Number of Amplifiers")
+        dialog.geometry("300x150")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(dialog,
+                  text="Select the number of amplifier stages (2-6):",
+                  wraplength=250,
+                  justify="center").pack(pady=10)
+
+        var = tk.StringVar(value="3")
+        combo = ttk.Combobox(dialog,
+                             textvariable=var,
+                             values=["2", "3", "4", "5", "6"],
+                             state="readonly",
+                             width=5)
+        combo.pack(pady=10)
+
+        def on_ok():
+            self.num_amps = int(var.get())
+            dialog.destroy()
+            self.create_welcome_screen()
+
+        ttk.Button(dialog, text="OK", command=on_ok).pack(pady=10)
+
+        # Center the dialog on the screen
+        dialog.update_idletasks()
+        width = dialog.winfo_width()
+        height = dialog.winfo_height()
+        x = (dialog.winfo_screenwidth() // 2) - (width // 2)
+        y = (dialog.winfo_screenheight() // 2) - (height // 2)
+        dialog.geometry(f"+{x}+{y}")
+
     def create_welcome_screen(self):
         self.welcome_frame = ttk.Frame(self.main_container)
         self.welcome_frame.pack(expand=True, fill='both')
 
         welcome_label = ttk.Label(
             self.welcome_frame,
-            text="Laser Amplification Simulation (v.0.1)\nPlease load a configuration file to begin\n\nMade by Loan Challeat\nContact: loan.challeat@thalesgroup.com",
+            text=f"Laser Amplification Simulation (v.0.1)\nConfigured for {self.num_amps} amplifier stages\nPlease load a configuration file to begin\n\nMade by Loan Challeat\nContact: loan.challeat@thalesgroup.com",
             font=('Arial', 14),
             justify='center'
         )
@@ -65,8 +105,9 @@ class JSONConfigEditor:
             try:
                 with open(file_path, 'r') as file:
                     config = json.load(file)
-                
-                required_sections = ['AMP1', 'AMP2', 'AMP3', 'BILAN_PUISSANCE']
+
+                # Check for required AMP sections based on num_amps
+                required_sections = [f'AMP{i}' for i in range(1, self.num_amps + 1)] + ['BILAN_PUISSANCE']
                 if not all(section in config for section in required_sections):
                     raise ValueError("Invalid configuration file format: Missing required sections")
 
@@ -75,7 +116,6 @@ class JSONConfigEditor:
                 self.current_config = copy.deepcopy(config)
 
                 self.welcome_frame.destroy()
-
                 self.create_main_ui()
 
             except Exception as e:
@@ -84,21 +124,22 @@ class JSONConfigEditor:
     def create_main_ui(self):
         self.notebook = ttk.Notebook(self.main_container)
         self.notebook.pack(expand=True, fill='both')
-        for amp in ['AMP1', 'AMP2', 'AMP3']:
-            self.create_amplifier_tab(amp)
+
+        # Create only the requested number of AMP tabs
+        for amp in range(1, self.num_amps + 1):
+            self.create_amplifier_tab(f"AMP{amp}")
+
         self.create_bilan_puissance_tab()
         self.create_simulation_tab()
         self.create_control_buttons()
-
         self.create_status_bar()
 
     def create_status_bar(self):
         self.status_bar = ttk.Frame(self.main_container)
-        self.status_bar.pack(fill='x', pady=(5,0))
-        
-        # Create file name label
+        self.status_bar.pack(fill='x', pady=(5, 0))
+
         self.file_label = ttk.Label(
-            self.status_bar, 
+            self.status_bar,
             text=f"Current file: {Path(self.config_file_path).name}",
             font=('Arial', 9)
         )
@@ -159,7 +200,6 @@ class JSONConfigEditor:
             self.create_section(right_column, amp_name, section_name, section_data)
 
     def create_section(self, parent, amp_name, section_name, section_data):
-        """Create a section frame with parameters"""
         # Parameters modifiable only in AMP1
         amp1_only_params = [
             "ENERGIE",
@@ -206,24 +246,20 @@ class JSONConfigEditor:
 
         for row, (param_name, param_value) in enumerate(section_data.items()):
             # Determine if parameter should be editable
-            is_editable = param_name in editable_params  # Base case: parameter is in generally editable list
-            
-            # For AMP1, also allow editing of amp1_only_params
+            is_editable = param_name in editable_params
+
             if amp_name == 'AMP1' and param_name in amp1_only_params:
                 is_editable = True
-            # For AMP2/AMP3, make amp1_only_params read-only
-            elif amp_name in ['AMP2', 'AMP3'] and param_name in amp1_only_params:
+            elif amp_name != 'AMP1' and param_name in amp1_only_params:
                 is_editable = False
 
-            # Create parameter name label (bold if editable)
-            name_label = ttk.Label(param_frame, 
-                                 text=param_name,
-                                 font=('Arial', 10, 'bold') if is_editable else ('Arial', 10))
+            name_label = ttk.Label(param_frame,
+                                   text=param_name,
+                                   font=('Arial', 10, 'bold') if is_editable else ('Arial', 10))
             name_label.grid(row=row, column=0, padx=(5, 10), pady=2, sticky="w")
             self.create_tooltip(name_label, f"Parameter: {param_name}")
 
             if is_editable:
-                # Create entry field for editable parameters
                 entry = ttk.Entry(param_frame, width=20)
                 entry.insert(0, str(param_value))
                 entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
@@ -233,16 +269,13 @@ class JSONConfigEditor:
                     self.entry_fields[amp_name][section_name] = {}
                 self.entry_fields[amp_name][section_name][param_name] = entry
             else:
-                # Create read-only label for non-editable parameters
                 value_label = ttk.Label(param_frame, text=str(param_value))
                 value_label.grid(row=row, column=1, padx=5, pady=2, sticky="w")
 
-                # Store the label in entry_fields for updating
                 if section_name not in self.entry_fields[amp_name]:
                     self.entry_fields[amp_name][section_name] = {}
                 self.entry_fields[amp_name][section_name][param_name] = value_label
 
-            # Add units if applicable
             unit = self.get_parameter_unit(param_name)
             if unit:
                 ttk.Label(param_frame, text=unit).grid(row=row, column=2, padx=(2, 5), pady=2)
@@ -319,7 +352,6 @@ class JSONConfigEditor:
             'SURFACE': 'cm2',
             '_IR': 'J/cm2',
             '_POMPE': 'J/cm2',
-            '_DOMMAGE': '%',
             'ABSORPTION': '%',
             'SATURATION': '%',
             'SEUIL': 'J/cm2',
@@ -396,7 +428,6 @@ class JSONConfigEditor:
         self.results_notebook.add(self.graph_frame, text="Graphs")
 
         self.setup_table_frame()
-        
         self.setup_graph_frame()
 
     def setup_table_frame(self):
@@ -422,8 +453,10 @@ class JSONConfigEditor:
         self.table_canvas.pack(side="left", fill="both", expand=True)
 
         self.amp_results = {}
-        for amp in ['AMP1', 'AMP2', 'AMP3']:
-            frame = ttk.LabelFrame(self.table_scroll_frame, text=f"{amp} Results")
+        # Create text widgets only for the requested number of amplifiers
+        for amp in range(1, self.num_amps + 1):
+            amp_name = f"AMP{amp}"
+            frame = ttk.LabelFrame(self.table_scroll_frame, text=f"{amp_name} Results")
             frame.pack(fill='both', expand=True, padx=5, pady=5)
 
             text_widget = tk.Text(frame, wrap=tk.NONE, height=15)
@@ -433,7 +466,7 @@ class JSONConfigEditor:
             h_scrollbar.pack(fill='x')
             text_widget.configure(xscrollcommand=h_scrollbar.set)
 
-            self.amp_results[amp] = text_widget
+            self.amp_results[amp_name] = text_widget
 
         power_frame = ttk.LabelFrame(self.table_scroll_frame, text="Power Balance")
         power_frame.pack(fill='both', expand=True, padx=5, pady=5)
@@ -480,14 +513,48 @@ class JSONConfigEditor:
         self.graph_canvas.pack(side="left", fill="both", expand=True)
 
         self.graph_frames = {}
-        for i, amp in enumerate(['AMP1', 'AMP2', 'AMP3']):
-            frame = ttk.LabelFrame(self.graph_scroll_frame, text=amp)
+        for i in range(self.num_amps):
+            frame = ttk.LabelFrame(self.graph_scroll_frame, text=f"AMP{i + 1}")
             frame.grid(row=i, column=0, padx=5, pady=5, sticky="nsew")
-            self.graph_frames[amp] = frame
+            self.graph_frames[f"AMP{i + 1}"] = frame
 
         self.graph_scroll_frame.grid_columnconfigure(0, weight=1)
-        for i in range(3):
+        for i in range(self.num_amps):
             self.graph_scroll_frame.grid_rowconfigure(i, weight=1)
+
+    def capture_and_display_graphs(self, amp_name):
+        figures = [plt.figure(num) for num in plt.get_fignums()]
+        if len(figures) >= 3:  # Updated to handle 3 figures
+            frame = self.graph_frames[amp_name]
+
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_columnconfigure(1, weight=1)
+            frame.grid_columnconfigure(2, weight=1)
+
+            # Spectrum plot
+            spectrum_frame = ttk.LabelFrame(frame, text="Spectrum")
+            spectrum_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
+            canvas_spectrum = FigureCanvasTkAgg(figures[-3], master=spectrum_frame)
+            canvas_spectrum.draw()
+            canvas_spectrum.get_tk_widget().pack(fill='both', expand=True)
+
+            # Gain plot
+            gain_frame = ttk.LabelFrame(frame, text="Gain")
+            gain_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
+            canvas_gain = FigureCanvasTkAgg(figures[-2], master=gain_frame)
+            canvas_gain.draw()
+            canvas_gain.get_tk_widget().pack(fill='both', expand=True)
+
+            # Energy plot
+            energy_frame = ttk.LabelFrame(frame, text="Energy")
+            energy_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+            canvas_energy = FigureCanvasTkAgg(figures[-1], master=energy_frame)
+            canvas_energy.draw()
+            canvas_energy.get_tk_widget().pack(fill='both', expand=True)
+
+            plt.close(figures[-3])
+            plt.close(figures[-2])
+            plt.close(figures[-1])
 
     def run_simulation(self):
         if not self.config_file_path:
@@ -508,6 +575,7 @@ class JSONConfigEditor:
             show_graphics = self.show_graphics_var.get()
             show_info = self.show_info_var.get()
 
+            # Clear all result text widgets
             for text_widget in self.amp_results.values():
                 text_widget.delete(1.0, tk.END)
                 text_widget.config(state='normal')
@@ -516,7 +584,6 @@ class JSONConfigEditor:
             self.verify_text.delete(1.0, tk.END)
             self.verify_text.config(state='normal')
 
-    
             plt.close('all')
             for frame in self.graph_frames.values():
                 for widget in frame.winfo_children():
@@ -529,6 +596,7 @@ class JSONConfigEditor:
                 sys.stdout = sys.__stdout__
                 return result, stdout.getvalue()
 
+            # Run AMP1 simulation
             (data, passage, abscisse_df), amp1_output = capture_output(
                 simu_AMP1, self.config_file_path, n_points, show_graphics, show_info
             )
@@ -536,19 +604,15 @@ class JSONConfigEditor:
             if show_graphics:
                 self.capture_and_display_graphs('AMP1')
 
-            (data, passage, abscisse_df), amp2_output = capture_output(
-                simu_AMP, self.config_file_path, passage, abscisse_df, "2", n_points, show_graphics, show_info
-            )
-            self.amp_results['AMP2'].insert(tk.END, amp2_output)
-            if show_graphics:
-                self.capture_and_display_graphs('AMP2')
-
-            (data, passage, abscisse_df), amp3_output = capture_output(
-                simu_AMP, self.config_file_path, passage, abscisse_df, "3", n_points, show_graphics, show_info
-            )
-            self.amp_results['AMP3'].insert(tk.END, amp3_output)
-            if show_graphics:
-                self.capture_and_display_graphs('AMP3')
+            # Run subsequent AMP simulations
+            for amp_num in range(2, self.num_amps + 1):
+                (data, passage, abscisse_df), amp_output = capture_output(
+                    simu_AMP, self.config_file_path, passage, abscisse_df,
+                    str(amp_num), n_points, show_graphics, show_info
+                )
+                self.amp_results[f'AMP{amp_num}'].insert(tk.END, amp_output)
+                if show_graphics:
+                    self.capture_and_display_graphs(f'AMP{amp_num}')
 
             # Calculate power balance
             _, power_output = capture_output(
@@ -562,6 +626,7 @@ class JSONConfigEditor:
             )
             self.verify_text.insert(tk.END, verify_output)
 
+            # Disable all text widgets
             for text_widget in self.amp_results.values():
                 text_widget.config(state='disabled')
             self.power_text.config(state='disabled')
@@ -575,45 +640,7 @@ class JSONConfigEditor:
         except Exception as e:
             messagebox.showerror("Error", f"Simulation failed: {str(e)}")
             import traceback
-            print("Error traceback:")
             traceback.print_exc()
-
-    def capture_and_display_graphs(self, amp_name):
-        """Display spectrum, gain, and energy plots for an amplifier"""
-        figures = [plt.figure(num) for num in plt.get_fignums()]
-        if len(figures) >= 3:  # Updated to check for 3 figures
-            frame = self.graph_frames[amp_name]
-
-            # Configure grid layout for 3 graphs
-            frame.grid_columnconfigure(0, weight=1)
-            frame.grid_columnconfigure(1, weight=1)
-            frame.grid_columnconfigure(2, weight=1)  # Added third column
-
-            # Spectrum plot
-            spectrum_frame = ttk.LabelFrame(frame, text="Spectrum")
-            spectrum_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-            canvas_spectrum = FigureCanvasTkAgg(figures[-3], master=spectrum_frame)  # Updated index
-            canvas_spectrum.draw()
-            canvas_spectrum.get_tk_widget().pack(fill='both', expand=True)
-
-            # Gain plot
-            gain_frame = ttk.LabelFrame(frame, text="Gain")
-            gain_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-            canvas_gain = FigureCanvasTkAgg(figures[-2], master=gain_frame)
-            canvas_gain.draw()
-            canvas_gain.get_tk_widget().pack(fill='both', expand=True)
-
-            # Energy plot
-            energy_frame = ttk.LabelFrame(frame, text="Energy")
-            energy_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
-            canvas_energy = FigureCanvasTkAgg(figures[-1], master=energy_frame)
-            canvas_energy.draw()
-            canvas_energy.get_tk_widget().pack(fill='both', expand=True)
-
-            # Close all figures
-            plt.close(figures[-3])
-            plt.close(figures[-2])
-            plt.close(figures[-1])
 
     def create_control_buttons(self):
         button_frame = ttk.Frame(self.main_container)
@@ -642,25 +669,26 @@ class JSONConfigEditor:
                 filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
                 initialfile=Path(self.config_file_path).name if self.config_file_path else "config.json"
             )
-            
-            if new_file_path: 
+
+            if new_file_path:
                 with open(new_file_path, 'w') as file:
                     json.dump(self.current_config, file, indent=4)
-                
+
                 self.config_file_path = new_file_path
                 self.update_file_label()
-                
+
                 self.original_config = copy.deepcopy(self.current_config)
-                
+
                 from update_config import update_config
-                for amp_name in ['AMP1', 'AMP2', 'AMP3']:
+                for amp_num in range(1, self.num_amps + 1):
+                    amp_name = f"AMP{amp_num}"
                     updated_config = update_config(self.config_file_path, amp_name)
-                    
+
                     with open(self.config_file_path, 'r') as file:
                         self.current_config = json.load(file)
-                    
+
                     self.update_amplifier_display(amp_name)
-                
+
                 messagebox.showinfo("Success", f"Configuration saved as {Path(new_file_path).name}")
 
         except Exception as e:
@@ -669,18 +697,18 @@ class JSONConfigEditor:
             traceback.print_exc()
 
     def load_new_configuration(self):
-        if messagebox.askyesno("Load New Configuration", 
-                              "Loading a new configuration will close the current one. Continue?"):
+        if messagebox.askyesno("Load New Configuration",
+                               "Loading a new configuration will close the current one. Continue?"):
             for widget in self.main_container.winfo_children():
                 widget.destroy()
-            
+
             self.original_config = None
             self.current_config = None
             self.config_file_path = None
             self.notebook = None
             self.tabs = {}
             self.entry_fields = {}
-            
+
             self.create_welcome_screen()
 
     def update_config(self):
@@ -689,7 +717,8 @@ class JSONConfigEditor:
             return
 
         try:
-            for amp_name in ['AMP1', 'AMP2', 'AMP3']:
+            for amp_num in range(1, self.num_amps + 1):
+                amp_name = f"AMP{amp_num}"
                 for section_name, section_fields in self.entry_fields[amp_name].items():
                     for param_name, widget in section_fields.items():
                         # Get value based on widget type
@@ -731,7 +760,8 @@ class JSONConfigEditor:
                 json.dump(self.current_config, file, indent=4)
 
             from update_config import update_config
-            for amp_name in ['AMP1', 'AMP2', 'AMP3']:
+            for amp_num in range(1, self.num_amps + 1):
+                amp_name = f"AMP{amp_num}"
                 updated_config = update_config(self.config_file_path, amp_name)
 
                 with open(self.config_file_path, 'r') as file:
@@ -746,27 +776,25 @@ class JSONConfigEditor:
             raise
 
     def update_amplifier_display(self, amp_name):
-        """Update the display of an amplifier"""
         for section_name, section_fields in self.entry_fields[amp_name].items():
             for param_name, widget in section_fields.items():
                 new_value = self.current_config[amp_name][section_name][param_name]
-                
+
                 if isinstance(widget, ttk.Entry):
-                    # Handle entry fields
                     widget.delete(0, tk.END)
                     widget.insert(0, str(new_value))
                     original_bg = widget.cget('background')
                     widget.configure(background='lightgreen')
                     self.root.after(500, lambda w=widget, bg=original_bg: w.configure(background=bg))
                 else:
-                    # Handle labels
                     widget.configure(text=str(new_value))
 
     def reset_config(self):
         if messagebox.askyesno("Confirm Reset", "Are you sure you want to reset all values to original?"):
             self.current_config = copy.deepcopy(self.original_config)
-            
-            for amp_name in ['AMP1', 'AMP2', 'AMP3']:
+
+            for amp_num in range(1, self.num_amps + 1):
+                amp_name = f"AMP{amp_num}"
                 for section_name, section_fields in self.entry_fields[amp_name].items():
                     for param_name, entry in section_fields.items():
                         entry.delete(0, tk.END)
@@ -776,10 +804,12 @@ class JSONConfigEditor:
                 entry.delete(0, tk.END)
                 entry.insert(0, str(self.original_config['BILAN_PUISSANCE'][param_name]))
 
+
 def SimuAMPGUI():
     root = tk.Tk()
     app = JSONConfigEditor(root)
     root.mainloop()
 
 
-SimuAMPGUI()
+if __name__ == "__main__":
+    SimuAMPGUI()
