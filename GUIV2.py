@@ -579,25 +579,39 @@ class JSONConfigEditor:
             traceback.print_exc()
 
     def capture_and_display_graphs(self, amp_name):
+        """Display spectrum, gain, and energy plots for an amplifier"""
         figures = [plt.figure(num) for num in plt.get_fignums()]
-        if len(figures) >= 2:
+        if len(figures) >= 3:  # Updated to check for 3 figures
             frame = self.graph_frames[amp_name]
 
+            # Configure grid layout for 3 graphs
             frame.grid_columnconfigure(0, weight=1)
             frame.grid_columnconfigure(1, weight=1)
+            frame.grid_columnconfigure(2, weight=1)  # Added third column
 
+            # Spectrum plot
             spectrum_frame = ttk.LabelFrame(frame, text="Spectrum")
             spectrum_frame.grid(row=0, column=0, padx=5, pady=5, sticky="nsew")
-            canvas_spectrum = FigureCanvasTkAgg(figures[-2], master=spectrum_frame)
+            canvas_spectrum = FigureCanvasTkAgg(figures[-3], master=spectrum_frame)  # Updated index
             canvas_spectrum.draw()
             canvas_spectrum.get_tk_widget().pack(fill='both', expand=True)
 
+            # Gain plot
             gain_frame = ttk.LabelFrame(frame, text="Gain")
             gain_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
-            canvas_gain = FigureCanvasTkAgg(figures[-1], master=gain_frame)
+            canvas_gain = FigureCanvasTkAgg(figures[-2], master=gain_frame)
             canvas_gain.draw()
             canvas_gain.get_tk_widget().pack(fill='both', expand=True)
 
+            # Energy plot
+            energy_frame = ttk.LabelFrame(frame, text="Energy")
+            energy_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
+            canvas_energy = FigureCanvasTkAgg(figures[-1], master=energy_frame)
+            canvas_energy.draw()
+            canvas_energy.get_tk_widget().pack(fill='both', expand=True)
+
+            # Close all figures
+            plt.close(figures[-3])
             plt.close(figures[-2])
             plt.close(figures[-1])
 
