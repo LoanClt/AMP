@@ -200,13 +200,16 @@ class JSONConfigEditor:
             self.create_section(right_column, amp_name, section_name, section_data)
 
     def create_section(self, parent, amp_name, section_name, section_data):
+        """Create a section frame with parameters"""
         # Parameters modifiable only in AMP1
-        amp1_only_params = [
-            "ENERGIE",
-            "LARGEUR_SPECTRALE",
-            "LONGUEUR_ONDE_CENTRALE_LC",
-            "DUREE_ETIREE"
-        ]
+        amp1_only_params = {
+            "FAISCEAU_IR": [
+                "ENERGIE",
+                "LARGEUR_SPECTRALE",  # Only LARGEUR_SPECTRALE in FAISCEAU_IR section
+                "LONGUEUR_ONDE_CENTRALE_LC",
+                "DUREE_ETIREE"
+            ]
+        }
 
         # Parameters modifiable in all amplifiers
         editable_params = [
@@ -226,7 +229,7 @@ class JSONConfigEditor:
             "TEMPERATURE_CRISTAL",
             "OUI_NON",
             "PROFIL_SPECTRAL",
-            "LARGEUR_SPECTRALE",
+            "LARGEUR_SPECTRALE",  # This will apply to FILTRE_SPECTRAL section
             "LONGUEUR_ONDE_CENTRALE",
             "TRANSMISSION_SPECTRALE",
             "ENERGIE_FACE",
@@ -248,18 +251,27 @@ class JSONConfigEditor:
             # Determine if parameter should be editable
             is_editable = param_name in editable_params
 
-            if amp_name == 'AMP1' and param_name in amp1_only_params:
-                is_editable = True
-            elif amp_name != 'AMP1' and param_name in amp1_only_params:
-                is_editable = False
+            # Special handling for LARGEUR_SPECTRALE in FAISCEAU_IR
+            if param_name == "LARGEUR_SPECTRALE":
+                if section_name == "FAISCEAU_IR":
+                    # In FAISCEAU_IR, only editable in AMP1
+                    is_editable = amp_name == "AMP1"
+                else:
+                    # In other sections (like FILTRE_SPECTRAL), always editable
+                    is_editable = True
+            # Handle other AMP1-only parameters
+            elif section_name in amp1_only_params and param_name in amp1_only_params[section_name]:
+                is_editable = amp_name == "AMP1"
 
-            name_label = ttk.Label(param_frame,
-                                   text=param_name,
-                                   font=('Arial', 10, 'bold') if is_editable else ('Arial', 10))
+            # Create parameter name label (bold if editable)
+            name_label = ttk.Label(param_frame, 
+                                 text=param_name,
+                                 font=('Arial', 10, 'bold') if is_editable else ('Arial', 10))
             name_label.grid(row=row, column=0, padx=(5, 10), pady=2, sticky="w")
             self.create_tooltip(name_label, f"Parameter: {param_name}")
 
             if is_editable:
+                # Create entry field for editable parameters
                 entry = ttk.Entry(param_frame, width=20)
                 entry.insert(0, str(param_value))
                 entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
@@ -269,13 +281,16 @@ class JSONConfigEditor:
                     self.entry_fields[amp_name][section_name] = {}
                 self.entry_fields[amp_name][section_name][param_name] = entry
             else:
+                # Create read-only label for non-editable parameters
                 value_label = ttk.Label(param_frame, text=str(param_value))
                 value_label.grid(row=row, column=1, padx=5, pady=2, sticky="w")
 
+                # Store the label in entry_fields for updating
                 if section_name not in self.entry_fields[amp_name]:
                     self.entry_fields[amp_name][section_name] = {}
                 self.entry_fields[amp_name][section_name][param_name] = value_label
 
+            # Add units if applicable
             unit = self.get_parameter_unit(param_name)
             if unit:
                 ttk.Label(param_frame, text=unit).grid(row=row, column=2, padx=(2, 5), pady=2)
@@ -607,22 +622,22 @@ class JSONConfigEditor:
             # Run subsequent AMP simulations
             for amp_num in range(2, self.num_amps + 1):
                 (data, passage, abscisse_df), amp_output = capture_output(
-                    simu_AMP, self.config_file_path, passage, abscisse_df,
+                    simu_AMP, self.config_file_path, passage, abscisse_df, 
                     str(amp_num), n_points, show_graphics, show_info
                 )
                 self.amp_results[f'AMP{amp_num}'].insert(tk.END, amp_output)
                 if show_graphics:
                     self.capture_and_display_graphs(f'AMP{amp_num}')
 
-            # Calculate power balance
+            # Calculate power balance with num_amps
             _, power_output = capture_output(
-                bilan_puissance, self.config_file_path, show_info
+                bilan_puissance, self.config_file_path, show_info, self.num_amps
             )
             self.power_text.insert(tk.END, power_output)
 
             from error_checker import verification
             _, verify_output = capture_output(
-                verification, self.config_file_path, show_info
+                verification, self.config_file_path, show_info, self.num_amps
             )
             self.verify_text.insert(tk.END, verify_output)
 
@@ -809,7 +824,3 @@ def SimuAMPGUI():
     root = tk.Tk()
     app = JSONConfigEditor(root)
     root.mainloop()
-
-
-if __name__ == "__main__":
-    SimuAMPGUI()
