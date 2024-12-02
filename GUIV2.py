@@ -5,16 +5,22 @@ import json
 from pathlib import Path
 import copy
 import matplotlib
-
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 import numpy as np
-from io import StringIO
+from io import StringIO, BytesIO  # Added BytesIO
 import sys
 from simu_AMP import simu_AMP1, simu_AMP, bilan_puissance
+import os
 
+# Imports for PDF generation
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
 
 class JSONConfigEditor:
     def __init__(self, root):
@@ -406,42 +412,50 @@ class JSONConfigEditor:
     def create_simulation_tab(self):
         self.sim_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.sim_tab, text="Simulation")
-
+    
         left_panel = ttk.Frame(self.sim_tab)
         left_panel.pack(side='left', fill='y', padx=10, pady=5)
-
+    
         ttk.Label(left_panel, text="Simulation Parameters",
                   font=('Arial', 12, 'bold')).pack(pady=5)
-
+    
         n_points_frame = ttk.Frame(left_panel)
         n_points_frame.pack(fill='x', pady=5)
         ttk.Label(n_points_frame, text="Number of Points:").pack(side='left')
         self.n_points_entry = ttk.Entry(n_points_frame, width=10)
         self.n_points_entry.insert(0, "200")
         self.n_points_entry.pack(side='left', padx=5)
-
+    
         self.show_graphics_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(left_panel, text="Show Graphics",
                         variable=self.show_graphics_var).pack(pady=5)
-
+    
         self.show_info_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(left_panel, text="Show Information",
                         variable=self.show_info_var).pack(pady=5)
-        ttk.Button(left_panel, text="Simulate",
-                   command=self.run_simulation).pack(pady=20)
-
+    
+        # Create a frame for buttons
+        button_frame = ttk.Frame(left_panel)
+        button_frame.pack(pady=20)
+        
+        ttk.Button(button_frame, text="Simulate",
+                   command=self.run_simulation).pack(pady=(0, 5))
+        
+        ttk.Button(button_frame, text="Save Report",
+                   command=self.save_report).pack(pady=(5, 0))
+    
         self.right_panel = ttk.Frame(self.sim_tab)
         self.right_panel.pack(side='right', fill='both', expand=True, padx=10, pady=5)
-
+    
         self.results_notebook = ttk.Notebook(self.right_panel)
         self.results_notebook.pack(fill='both', expand=True)
-
+    
         self.table_frame = ttk.Frame(self.results_notebook)
         self.graph_frame = ttk.Frame(self.results_notebook)
-
+    
         self.results_notebook.add(self.table_frame, text="Results Table")
         self.results_notebook.add(self.graph_frame, text="Graphs")
-
+    
         self.setup_table_frame()
         self.setup_graph_frame()
 
@@ -603,6 +617,7 @@ class JSONConfigEditor:
                 return result, stdout.getvalue()
     
             all_figures = {}
+            self.simulation_results = {'figures': {}, 'outputs': {}}  # Store results as class attribute
     
             # Run AMP1 simulation
             plt.close('all')
@@ -610,6 +625,8 @@ class JSONConfigEditor:
                 simu_AMP1, self.config_file_path, n_points, show_graphics, show_info
             )
             self.amp_results['AMP1'].insert(tk.END, amp1_output)
+            self.simulation_results['outputs']['AMP1'] = amp1_output
+            
             if show_graphics:
                 figures = [plt.figure(num) for num in plt.get_fignums()]
                 if figures:
@@ -618,6 +635,7 @@ class JSONConfigEditor:
                         'Gain': figures[1],
                         'Energy': figures[2]
                     }
+                    self.simulation_results['figures']['AMP1'] = all_figures['AMP1']
     
             # Run subsequent AMP simulations
             for amp_num in range(2, self.num_amps + 1):
@@ -626,21 +644,26 @@ class JSONConfigEditor:
                     simu_AMP, self.config_file_path, passage, abscisse_df, 
                     str(amp_num), n_points, show_graphics, show_info
                 )
-                self.amp_results[f'AMP{amp_num}'].insert(tk.END, amp_output)
+                amp_name = f'AMP{amp_num}'
+                self.amp_results[amp_name].insert(tk.END, amp_output)
+                self.simulation_results['outputs'][amp_name] = amp_output
+                
                 if show_graphics:
                     figures = [plt.figure(num) for num in plt.get_fignums()]
                     if figures:
-                        all_figures[f'AMP{amp_num}'] = {
+                        all_figures[amp_name] = {
                             'Spectrum': figures[0],
                             'Gain': figures[1],
                             'Energy': figures[2]
                         }
+                        self.simulation_results['figures'][amp_name] = all_figures[amp_name]
     
             # Calculate power balance
             _, power_output = capture_output(
                 bilan_puissance, self.config_file_path, show_info, self.num_amps
             )
             self.power_text.insert(tk.END, power_output)
+            self.simulation_results['power_balance'] = power_output
     
             # Run verification
             from error_checker import verification
@@ -648,6 +671,7 @@ class JSONConfigEditor:
                 verification, self.config_file_path, show_info, self.num_amps
             )
             self.verify_text.insert(tk.END, verify_output)
+            self.simulation_results['verification'] = verify_output
     
             # Display all figures for all AMPs
             if show_graphics:
@@ -664,6 +688,145 @@ class JSONConfigEditor:
     
         except Exception as e:
             messagebox.showerror("Error", f"Simulation failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+    
+    def save_report(self):
+        """Generate and save a PDF report of the simulation results"""
+        if not hasattr(self, 'simulation_results'):
+            messagebox.showerror("Error", "No simulation results available. Please run a simulation first.")
+            return
+            
+        try:
+            # Get save location
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+                initialfile="simulation_report.pdf"
+            )
+            
+            if not file_path:
+                return
+    
+            # Create the PDF document
+            doc = SimpleDocTemplate(
+                file_path,
+                pagesize=landscape(A4),
+                rightMargin=72,
+                leftMargin=72,
+                topMargin=72,
+                bottomMargin=72
+            )
+    
+            # Container for PDF elements and image buffers
+            elements = []
+            buffers = []  # Keep track of buffers
+            
+            # Styles
+            styles = getSampleStyleSheet()
+            title_style = ParagraphStyle(
+                'CustomTitle',
+                parent=styles['Heading1'],
+                fontSize=24,
+                spaceAfter=30
+            )
+            
+            # Add title
+            elements.append(Paragraph("Laser Amplification Simulation Report", title_style))
+            elements.append(Spacer(1, 20))
+    
+            # Add configuration file info
+            elements.append(Paragraph(f"Configuration file: {os.path.basename(self.config_file_path)}", styles['Normal']))
+            elements.append(Spacer(1, 20))
+    
+            # Process each AMP's results
+            for amp_num in range(1, self.num_amps + 1):
+                amp_name = f"AMP{amp_num}"
+                
+                # Add AMP title
+                elements.append(Paragraph(f"{amp_name} Results", styles['Heading2']))
+                elements.append(Spacer(1, 10))
+    
+                # Get text results from stored simulation results
+                text_content = self.simulation_results['outputs'].get(amp_name, '')
+                if text_content:
+                    # Create table from text results
+                    rows = []
+                    for line in text_content.split('\n'):
+                        if line.strip():
+                            rows.append([line])
+                    
+                    if rows:
+                        table = Table(rows, colWidths=[500])
+                        table.setStyle(TableStyle([
+                            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8),
+                            ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ]))
+                        elements.append(table)
+                        elements.append(Spacer(1, 10))
+    
+                # Add figures if they exist
+                if amp_name in self.simulation_results['figures']:
+                    figures_dict = self.simulation_results['figures'][amp_name]
+                    elements.append(Paragraph(f"{amp_name} Graphs", styles['Heading3']))
+                    elements.append(Spacer(1, 10))
+                    
+                    for title, fig in figures_dict.items():
+                        # Create a new buffer for each image
+                        buf = BytesIO()
+                        fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+                        buf.seek(0)
+                        buffers.append(buf)  # Keep buffer reference
+                        
+                        # Add title for each graph
+                        elements.append(Paragraph(title, styles['Heading4']))
+                        elements.append(Spacer(1, 5))
+                        
+                        # Add image to PDF
+                        img = RLImage(buf)
+                        img.drawHeight = 2.5*inch
+                        img.drawWidth = 3.5*inch
+                        elements.append(img)
+                        elements.append(Spacer(1, 10))
+                
+                elements.append(Spacer(1, 20))
+    
+            # Add power balance results
+            if 'power_balance' in self.simulation_results:
+                elements.append(Paragraph("Power Balance Results", styles['Heading2']))
+                elements.append(Spacer(1, 10))
+                
+                power_content = self.simulation_results['power_balance']
+                if power_content:
+                    rows = [[line] for line in power_content.split('\n') if line.strip()]
+                    if rows:
+                        table = Table(rows, colWidths=[500])
+                        table.setStyle(TableStyle([
+                            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 8),
+                            ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                        ]))
+                        elements.append(table)
+    
+            # Build PDF
+            doc.build(elements)
+            
+            # Close all buffers after PDF is built
+            for buf in buffers:
+                buf.close()
+            
+            messagebox.showinfo("Success", f"Report saved successfully to {file_path}")
+    
+        except Exception as e:
+            # Close buffers even if there's an error
+            for buf in buffers:
+                buf.close()
+            messagebox.showerror("Error", f"Failed to save report: {str(e)}")
             import traceback
             traceback.print_exc()
     
@@ -960,6 +1123,8 @@ class JSONConfigEditor:
             for param_name, entry in self.entry_fields['BILAN_PUISSANCE'].items():
                 entry.delete(0, tk.END)
                 entry.insert(0, str(self.original_config['BILAN_PUISSANCE'][param_name]))
+
+    
 
 
 def SimuAMPGUI():
