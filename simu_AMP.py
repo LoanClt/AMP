@@ -8,7 +8,7 @@ from update_config import update_config, update_coef_profil, update_param
 from dazzler import entree_avant_dazzler, entree_apres_dazzler, update_entree_avant_dazzler
 from gain import gain_init
 from passage import compute_pass, update_next_amp
-from misc import create_table, affichage_spectre, affichage_gain
+from misc import create_table, affichage_spectre, affichage_gain, affichage_energie
 import json
 from prettytable import PrettyTable
 
@@ -49,18 +49,21 @@ def simu_AMP1(FILE_NAME, N_POINT, mode_graphique, mode_information):
     #pd.DataFrame(bdd, columns=['Profil_TEMP', 'Profil_SPEC', 'Profil_SPEC_NORM', 'Integrale', 'Gain_Omega', 'Gain_temps'])
     liste_passages = [passage1_df, passage2_df, passage3_df, passage4_df, passage5_df, passage6_df]
 
-    if mode_information:
-        create_table(FILE_NAME, TEXTE_AMP)
 
     for i in range(2):
-        update_next_amp(FILE_NAME, 2)
         nbr_passage = data["AMP1"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
         passage = liste_passages[nbr_passage - 1]
+        
+        update_next_amp(FILE_NAME, 2)
         data = update_config(FILE_NAME, "AMP2")
 
     if mode_graphique:
         affichage_spectre(abscisse_df, avant_dazzler_df, passage, filtre_df, data["AMP1"]["FILTRE_SPECTRAL"]["OUI_NON"])
         affichage_gain(FILE_NAME, TEXTE_AMP)
+        affichage_energie(FILE_NAME, TEXTE_AMP)
+
+    if mode_information:
+        create_table(FILE_NAME, TEXTE_AMP)
 
     return [data, passage, abscisse_df]
 
@@ -72,18 +75,25 @@ def simu_AMP(FILE_NAME, passage, abscisse_df, N_AMP, N_POINT, mode_graphique, mo
             
     abscisse_df = update_abscisses(N_POINT, abscisse_df, data[TEXTE_AMP]["FAISCEAU_POMPE"]["DIAMETRE"])
     #pd.DataFrame(abscisse, columns=['Temps', 'Omega', 'Lambda', 'x'])
+
     profil_df = spatial_profile(N_POINT, abscisse_df, data[TEXTE_AMP]["FAISCEAU_IR"]["DIAMETRE"], data[TEXTE_AMP]["FAISCEAU_IR"]["PROFIL_SPATIAL"], data[TEXTE_AMP]["FAISCEAU_POMPE"]["DIAMETRE"], data[TEXTE_AMP]["FAISCEAU_POMPE"]["PROFIL_SPATIAL"], data[TEXTE_AMP]["FAISCEAU_IR"]["RAYON_EQUIVALENT"], data[TEXTE_AMP]["FAISCEAU_POMPE"]["RAYON_EQUIVALENT"])
+
     #pd.DataFrame(ordinates, columns=['Profil IR', 'Profil FP', 'Équivalent IR', 'Équivalent FP'])
     saturation_df = create_saturation(N_POINT, data[TEXTE_AMP]["CRISTAL_TISA_POMPE"]["FREQUENCE_RESONNANCE"], data[TEXTE_AMP]["CRISTAL_TISA_POMPE"]["TEMPS_COHERENCE"], data[TEXTE_AMP]["CRISTAL_TISA_POMPE"]["SECTION_EFFICACE_EMISSION_LR"], abscisse_df['Omega'])
+
     #df_sat = pd.DataFrame(sat, columns=['Saturation'])
     filtre_df = create_spectral_filter(N_POINT, data[TEXTE_AMP]["FILTRE_SPECTRAL"]["OUI_NON"], data[TEXTE_AMP]["FILTRE_SPECTRAL"]["PROFIL_SPECTRAL"], data[TEXTE_AMP]["FILTRE_SPECTRAL"]["LARGEUR_SPECTRALE"], data[TEXTE_AMP]["FILTRE_SPECTRAL"]["LONGUEUR_ONDE_CENTRALE"], data[TEXTE_AMP]["FILTRE_SPECTRAL"]["TRANSMISSION_SPECTRALE"], abscisse_df['Lambda'])
+
     #pd.DataFrame(spectral_filter, columns=['Filtre spectral']
     avant_dazzler_df = update_entree_avant_dazzler(N_POINT, abscisse_df, passage, data[TEXTE_AMP]["FAISCEAU_IR"]["FLUENCE_IR"])
     #pd.DataFrame(bdd, columns=['A_DAZZLER_T', 'A_DAZZLER_W', 'A_DAZZLER_W_NORMA', 'Integrale'])
+
     apres_dazzler_df = entree_apres_dazzler(FILE_NAME, N_POINT, avant_dazzler_df, abscisse_df, filtre_df, data[TEXTE_AMP]["FILTRE_SPECTRAL"]["OUI_NON"], N_AMP)
-    #pd.DataFrame(bdd, columns=['P_DAZZLER_T', 'P_DAZZLER_W', 'P_DAZZLER_W_NORMA', 'Integrale'])
+    #pd.DataFrame(bdd, columns=['P_DAZZLER_T', 'P_DAZZLER_W', 'P_DAZZLER_W_NORMA', 'Integrale']))
+
     gain_init_df = gain_init(N_POINT, data[TEXTE_AMP]["FAISCEAU_POMPE"]["ENERGIE_LASER_TOTALE"], data[TEXTE_AMP]["CRISTAL_TISA"]["ABSORPTION_A_532NM"], data[TEXTE_AMP]["CRISTAL_TISA_POMPE"]["EFFICACITE_QUANTIQUE"], data[TEXTE_AMP]["FAISCEAU_POMPE"]["LONGUEUR_ONDE_LP"], data[TEXTE_AMP]["FAISCEAU_POMPE"]["SURFACE_EQUIVALENTE"], saturation_df, apres_dazzler_df, abscisse_df)
     #pd.DataFrame(bdd, columns=['Gain_Omega', 'Gain_temps'])
+
 
     passage1_df = compute_pass(FILE_NAME, N_POINT, data[TEXTE_AMP]["GEOMETRIE_AMPLIFICATEUR"]["PERTES_APRES_PASSAGE"], abscisse_df, apres_dazzler_df["P_DAZZLER_T"], apres_dazzler_df["P_DAZZLER_W"], apres_dazzler_df["Integrale"], gain_init_df["Gain_Omega"], gain_init_df["Gain_temps"], saturation_df, "1", N_AMP)
     #pd.DataFrame(bdd, columns=['Profil_TEMP', 'Profil_SPEC', 'Profil_SPEC_NORM', 'Integrale', 'Gain_Omega', 'Gain_temps'])
@@ -99,27 +109,55 @@ def simu_AMP(FILE_NAME, passage, abscisse_df, N_AMP, N_POINT, mode_graphique, mo
     #pd.DataFrame(bdd, columns=['Profil_TEMP', 'Profil_SPEC', 'Profil_SPEC_NORM', 'Integrale', 'Gain_Omega', 'Gain_temps'])
     liste_passages = [passage1_df, passage2_df, passage3_df, passage4_df, passage5_df, passage6_df]
 
-    if mode_information:
-        create_table(FILE_NAME, TEXTE_AMP)
 
     if N_AMP == "2":
         for i in range(2):
-            update_next_amp(FILE_NAME, 3)
             nbr_passage = data["AMP2"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
             passage = liste_passages[nbr_passage - 1]
+            
+            update_next_amp(FILE_NAME, 3)
             data = update_config(FILE_NAME, "AMP3")
+
             
     if N_AMP == "3":
-        nbr_passage = data["AMP3"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
+        for i in range(2):
+            nbr_passage = data["AMP3"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
+            passage = liste_passages[nbr_passage - 1]
+            
+            update_next_amp(FILE_NAME, 4)
+            data = update_config(FILE_NAME, "AMP4")
+
+    if N_AMP == "4":
+        for i in range(2):
+            nbr_passage = data["AMP4"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
+            passage = liste_passages[nbr_passage - 1]
+            
+            update_next_amp(FILE_NAME, 5)
+            data = update_config(FILE_NAME, "AMP5")
+
+    if N_AMP == "5":
+        for i in range(2):
+            nbr_passage = data["AMP5"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
+            passage = liste_passages[nbr_passage - 1]
+            
+            update_next_amp(FILE_NAME, 6)
+            data = update_config(FILE_NAME, "AMP6")
+
+    if N_AMP == "6":
+        nbr_passage = data["AMP6"]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"] 
         passage = liste_passages[nbr_passage - 1]
+
+    if mode_information:
+        create_table(FILE_NAME, TEXTE_AMP)
         
     if mode_graphique:
         affichage_spectre(abscisse_df, avant_dazzler_df, passage, filtre_df, data[TEXTE_AMP]["FILTRE_SPECTRAL"]["OUI_NON"])
         affichage_gain(FILE_NAME, TEXTE_AMP)
+        affichage_energie(FILE_NAME, TEXTE_AMP)
     
     return [data, passage, abscisse_df]
     
-def bilan_puissance(FILE_NAME, mode_information):
+def bilan_puissance(FILE_NAME, mode_information, AMP_STAGES):
     with open(FILE_NAME, "r") as file:
         data = json.load(file)
         
@@ -132,15 +170,18 @@ def bilan_puissance(FILE_NAME, mode_information):
     table = PrettyTable()
     table.add_column("AMP",["ENERGIE ENTREE (mJ)","ENERGIE SORTIE (mJ)"])
 
-    for i in range(1, 3 + 1):
+    for i in range(1, AMP_STAGES + 1):
         TEXT_AMP = "AMP" + str(i)
         inp = round(data[TEXT_AMP]["FAISCEAU_IR"]["ENERGIE"], 1)
         nbr_passage = data[TEXT_AMP]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"]
         TEXT_PASSAGE = "PASSAGE" + str(nbr_passage)
         out = round(data[TEXT_AMP]["RESULTATS"][TEXT_PASSAGE]["ENERGIE"],1)
-        if i == 3:
+        if i == AMP_STAGES:
             energie_finale = out
         table.add_column(str(i),[str(inp),str(out)])
+
+    if mode_information:
+        print(table)
 
     energie_a = round(energie_finale*(1-a_pp)*(1-a_pa), 1)
     energie_p = round(energie_a*(1-c_pp)*(1-c_pa),1)

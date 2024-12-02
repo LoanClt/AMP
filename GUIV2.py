@@ -216,7 +216,10 @@ class JSONConfigEditor:
                 "DUREE_ETIREE"
             ]
         }
-
+    
+        # Parameters non-editable in FAISCEAU_POMPE section
+        pompe_non_editable = ["DIAMETRE", "DUREE", "LONGUEUR_ONDE_LP"]
+    
         # Parameters modifiable in all amplifiers
         editable_params = [
             "PROFIL_SPATIAL",
@@ -244,19 +247,19 @@ class JSONConfigEditor:
             "DUREE",
             "LONGUEUR_ONDE_LP"
         ]
-
+    
         section_frame = ttk.LabelFrame(parent, text=section_name, padding=(10, 5))
         section_frame.pack(fill='x', padx=5, pady=5, ipadx=5, ipady=5)
-
+    
         param_frame = ttk.Frame(section_frame)
         param_frame.pack(fill='x', expand=True)
-
+    
         param_frame.grid_columnconfigure(1, weight=1)
-
+    
         for row, (param_name, param_value) in enumerate(section_data.items()):
             # Determine if parameter should be editable
             is_editable = param_name in editable_params
-
+    
             # Special handling for LARGEUR_SPECTRALE in FAISCEAU_IR
             if param_name == "LARGEUR_SPECTRALE":
                 if section_name == "FAISCEAU_IR":
@@ -268,21 +271,24 @@ class JSONConfigEditor:
             # Handle other AMP1-only parameters
             elif section_name in amp1_only_params and param_name in amp1_only_params[section_name]:
                 is_editable = amp_name == "AMP1"
-
+            # Handle non-editable parameters in FAISCEAU_POMPE
+            elif section_name == "FAISCEAU_POMPE" and param_name in pompe_non_editable:
+                is_editable = False
+    
             # Create parameter name label (bold if editable)
             name_label = ttk.Label(param_frame, 
                                  text=param_name,
                                  font=('Arial', 10, 'bold') if is_editable else ('Arial', 10))
             name_label.grid(row=row, column=0, padx=(5, 10), pady=2, sticky="w")
             self.create_tooltip(name_label, f"Parameter: {param_name}")
-
+    
             if is_editable:
                 # Create entry field for editable parameters
                 entry = ttk.Entry(param_frame, width=20)
                 entry.insert(0, str(param_value))
                 entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
                 self.setup_entry_validation(entry, param_name, param_value)
-
+    
                 if section_name not in self.entry_fields[amp_name]:
                     self.entry_fields[amp_name][section_name] = {}
                 self.entry_fields[amp_name][section_name][param_name] = entry
@@ -290,12 +296,12 @@ class JSONConfigEditor:
                 # Create read-only label for non-editable parameters
                 value_label = ttk.Label(param_frame, text=str(param_value))
                 value_label.grid(row=row, column=1, padx=5, pady=2, sticky="w")
-
+    
                 # Store the label in entry_fields for updating
                 if section_name not in self.entry_fields[amp_name]:
                     self.entry_fields[amp_name][section_name] = {}
                 self.entry_fields[amp_name][section_name][param_name] = value_label
-
+    
             # Add units if applicable
             unit = self.get_parameter_unit(param_name)
             if unit:
@@ -955,10 +961,10 @@ class JSONConfigEditor:
 
         # Convert decimal values to percentages for display
         display_multiplier = {
-            "ATTENUATEUR_PER_PRIN": 100,
-            "ATTENUATEUR_PER_AUTRE": 100,
-            "COMPRESSEUR_PER_PRIN": 100,
-            "COMPRESSEUR_PER_AUTRE": 100,
+            "ATTENUATEUR_PER_PRIN": 1,
+            "ATTENUATEUR_PER_AUTRE": 1,
+            "COMPRESSEUR_PER_PRIN": 1,
+            "COMPRESSEUR_PER_AUTRE": 1,
             "PUISSANCE": 1,
             "OBJECTIF": 1
         }

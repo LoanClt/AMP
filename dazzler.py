@@ -94,7 +94,7 @@ def entree_apres_dazzler(FILE_NAME, N_POINT, avant_dazzler_df, abscisse_df, filt
     update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "DUREE", duree)
     update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "EXTRACTION", extraction)
     update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "FLUENCE", fluence)
-    update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "ENERGIE", energie)
+    #update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "ENERGIE", energie)
     update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "ECLAIREMENT", eclairement)
     update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "SATURATION", saturation)
     update_result(FILE_NAME, TEXTE_AMP, "PASSAGE0", "DOMMAGE", dommage)

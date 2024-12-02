@@ -159,43 +159,6 @@ class JSONConfigEditor:
             self.create_section(right_column, amp_name, section_name, section_data)
 
     def create_section(self, parent, amp_name, section_name, section_data):
-        """Create a section frame with parameters"""
-        # Parameters modifiable only in AMP1
-        amp1_only_params = [
-            "ENERGIE",
-            "LARGEUR_SPECTRALE",
-            "LONGUEUR_ONDE_CENTRALE_LC",
-            "DUREE_ETIREE"
-        ]
-
-        # Parameters modifiable in all amplifiers
-        editable_params = [
-            "PROFIL_SPATIAL",
-            "DIAMETRE",
-            "PROFIL_TEMPORAL",
-            "GEOMETRIE_AMPLIFICATEUR",
-            "PASSAGES",
-            "COTES_POMPAGE",
-            "FEEDBACK",
-            "SEUIL_DOMMAGE",
-            "IR_POMPE",
-            "PERTES_APRES_PASSAGE",
-            "DIAMETRE",
-            "LONGUEUR",
-            "ABSORPTION_A_532NM",
-            "TEMPERATURE_CRISTAL",
-            "OUI_NON",
-            "PROFIL_SPECTRAL",
-            "LARGEUR_SPECTRALE",
-            "LONGUEUR_ONDE_CENTRALE",
-            "TRANSMISSION_SPECTRALE",
-            "ENERGIE_FACE",
-            "PROFIL_SPATIAL",
-            "TAUX_REPETITION",
-            "DUREE",
-            "LONGUEUR_ONDE_LP"
-        ]
-
         section_frame = ttk.LabelFrame(parent, text=section_name, padding=(10, 5))
         section_frame.pack(fill='x', padx=5, pady=5, ipadx=5, ipady=5)
 
@@ -205,44 +168,20 @@ class JSONConfigEditor:
         param_frame.grid_columnconfigure(1, weight=1)
 
         for row, (param_name, param_value) in enumerate(section_data.items()):
-            # Determine if parameter should be editable
-            is_editable = param_name in editable_params  # Base case: parameter is in generally editable list
-            
-            # For AMP1, also allow editing of amp1_only_params
-            if amp_name == 'AMP1' and param_name in amp1_only_params:
-                is_editable = True
-            # For AMP2/AMP3, make amp1_only_params read-only
-            elif amp_name in ['AMP2', 'AMP3'] and param_name in amp1_only_params:
-                is_editable = False
-
-            # Create parameter name label (bold if editable)
-            name_label = ttk.Label(param_frame, 
-                                 text=param_name,
-                                 font=('Arial', 10, 'bold') if is_editable else ('Arial', 10))
+            name_label = ttk.Label(param_frame, text=param_name)
             name_label.grid(row=row, column=0, padx=(5, 10), pady=2, sticky="w")
             self.create_tooltip(name_label, f"Parameter: {param_name}")
 
-            if is_editable:
-                # Create entry field for editable parameters
-                entry = ttk.Entry(param_frame, width=20)
-                entry.insert(0, str(param_value))
-                entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
-                self.setup_entry_validation(entry, param_name, param_value)
+            entry = ttk.Entry(param_frame, width=20)
+            entry.insert(0, str(param_value))
+            entry.grid(row=row, column=1, padx=5, pady=2, sticky="ew")
 
-                if section_name not in self.entry_fields[amp_name]:
-                    self.entry_fields[amp_name][section_name] = {}
-                self.entry_fields[amp_name][section_name][param_name] = entry
-            else:
-                # Create read-only label for non-editable parameters
-                value_label = ttk.Label(param_frame, text=str(param_value))
-                value_label.grid(row=row, column=1, padx=5, pady=2, sticky="w")
+            self.setup_entry_validation(entry, param_name, param_value)
 
-                # Store the label in entry_fields for updating
-                if section_name not in self.entry_fields[amp_name]:
-                    self.entry_fields[amp_name][section_name] = {}
-                self.entry_fields[amp_name][section_name][param_name] = value_label
+            if section_name not in self.entry_fields[amp_name]:
+                self.entry_fields[amp_name][section_name] = {}
+            self.entry_fields[amp_name][section_name][param_name] = entry
 
-            # Add units if applicable
             unit = self.get_parameter_unit(param_name)
             if unit:
                 ttk.Label(param_frame, text=unit).grid(row=row, column=2, padx=(2, 5), pady=2)
@@ -725,21 +664,15 @@ class JSONConfigEditor:
             raise
 
     def update_amplifier_display(self, amp_name):
-        """Update the display of an amplifier"""
         for section_name, section_fields in self.entry_fields[amp_name].items():
-            for param_name, widget in section_fields.items():
+            for param_name, entry in section_fields.items():
                 new_value = self.current_config[amp_name][section_name][param_name]
-                
-                if isinstance(widget, ttk.Entry):
-                    # Handle entry fields
-                    widget.delete(0, tk.END)
-                    widget.insert(0, str(new_value))
-                    original_bg = widget.cget('background')
-                    widget.configure(background='lightgreen')
-                    self.root.after(500, lambda w=widget, bg=original_bg: w.configure(background=bg))
-                else:
-                    # Handle labels
-                    widget.configure(text=str(new_value))
+                entry.delete(0, tk.END)
+                entry.insert(0, str(new_value))
+
+                original_bg = entry.cget('background')
+                entry.configure(background='lightgreen')
+                self.root.after(500, lambda e=entry, bg=original_bg: e.configure(background=bg))
 
     def reset_config(self):
         if messagebox.askyesno("Confirm Reset", "Are you sure you want to reset all values to original?"):
@@ -755,7 +688,7 @@ class JSONConfigEditor:
                 entry.delete(0, tk.END)
                 entry.insert(0, str(self.original_config['BILAN_PUISSANCE'][param_name]))
 
-def SimuAMPGUI():
+def SimuAMPGUI_debug():
     root = tk.Tk()
     app = JSONConfigEditor(root)
     root.mainloop()

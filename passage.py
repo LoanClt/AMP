@@ -83,6 +83,7 @@ def update_next_amp(FILE_NAME, NEXT_AMP):
     passage = "PASSAGE" + str(data[former_a]["GEOMETRIE_AMPLIFICATEUR"]["PASSAGES"]) 
     
     data[next_a]["FAISCEAU_IR"]["ENERGIE"] = data[former_a]["RESULTATS"][passage]["ENERGIE"]
+    data[next_a]["RESULTATS"]["PASSAGE0"]["ENERGIE"] = data[former_a]["RESULTATS"][passage]["ENERGIE"]
     data[next_a]["FAISCEAU_IR"]["LARGEUR_SPECTRALE"] = data[former_a]["RESULTATS"][passage]["DELTAL_MI_HAUTEUR"]
     data[next_a]["FAISCEAU_IR"]["LONGUEUR_ONDE_CENTRALE_LC"] = data[former_a]["RESULTATS"][passage]["LC_MAX"]
     data[next_a]["FAISCEAU_IR"]["DUREE_ETIREE"] = data[former_a]["RESULTATS"][passage]["DUREE"]
