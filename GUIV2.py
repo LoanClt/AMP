@@ -22,6 +22,9 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, 
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 
+from datetime import datetime
+from reportlab.platypus import PageBreak
+
 class JSONConfigEditor:
     def __init__(self, root):
         self.root = root
@@ -697,6 +700,120 @@ class JSONConfigEditor:
             import traceback
             traceback.print_exc()
     
+    def create_amp_results_table(self, content):
+        """Create a nicely formatted table from AMP results"""
+        # Parse the content into rows
+        rows = []
+        for line in content.split('\n'):
+            if '|' in line:
+                # Clean up and split the line
+                cells = [cell.strip() for cell in line.split('|') if cell.strip()]
+                if cells:
+                    rows.append(cells)
+    
+        if not rows:
+            return None
+    
+        # Define color scheme
+        header_color = colors.HexColor('#2C3E50')  # Dark blue
+        alt_row_color = colors.HexColor('#F2F4F4')  # Light gray
+        border_color = colors.HexColor('#34495E')  # Darker blue
+    
+        # Create table with all columns of equal width
+        col_widths = [65] * len(rows[0])  # Adjust base width as needed
+        col_widths[0] = 120  # Make first column (parameter names) wider
+        
+        table = Table(rows, colWidths=col_widths)
+        
+        # Complex table style
+        style = [
+            # Global table properties
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            
+            # Header row (first row)
+            ('BACKGROUND', (0, 0), (-1, 0), header_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 9),
+            
+            # First column (parameter names)
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            
+            # Alternating row colors
+            *[('BACKGROUND', (0, i), (-1, i), alt_row_color) for i in range(1, len(rows)) if i % 2 == 0],
+            
+            # Grid
+            ('GRID', (0, 0), (-1, -1), 0.5, border_color),
+            ('BOX', (0, 0), (-1, -1), 1, border_color),
+            
+            # Special formatting for numeric cells
+            *[('ALIGN', (1, i), (-1, i), 'CENTER') for i in range(1, len(rows))],
+        ]
+        
+        table.setStyle(TableStyle(style))
+        return table
+
+    def create_power_balance_tables(self, content):
+        """Create two separate tables for power balance results"""
+        # Parse the content into energy data and power data
+        L = ["AMP"]
+        for i in range(1,  self.num_amps + 1):
+            L.append(str(i))
+        #energy_rows = [['AMP', '1', '2', '3']]
+        energy_rows = [L]
+        power_rows = []
+        
+        for line in content.split('\n'):
+            if 'ENERGIE' in line:
+                cells = [cell.strip() for cell in line.split('|') if cell.strip()]
+                energy_rows.append(cells)
+            elif any(x in line for x in ['PUISSANCE', 'OBJECTIF', 'MARGE']):
+                cells = [cell.strip() for cell in line.split('|') if cell.strip()]
+                if cells:
+                    power_rows.append([cells[0], cells[1]])
+    
+        # Style configuration
+        header_color = colors.HexColor('#2C3E50')
+        alt_row_color = colors.HexColor('#F2F4F4')
+        border_color = colors.HexColor('#34495E')
+    
+        # Create energy table
+        energy_table = Table(energy_rows, colWidths=[120, 80, 80, 80])
+        energy_style = [
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 0), (-1, 0), header_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.5, border_color),
+            ('BOX', (0, 0), (-1, -1), 1, border_color),
+            ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ]
+        energy_table.setStyle(TableStyle(energy_style))
+    
+        # Create power table
+        power_table = Table(power_rows, colWidths=[180, 80])
+        power_style = [
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, border_color),
+            ('BOX', (0, 0), (-1, -1), 1, border_color),
+            ('ALIGN', (1, 0), (1, -1), 'CENTER'),
+        ]
+        power_table.setStyle(TableStyle(power_style))
+    
+        return energy_table, power_table
+    
     def save_report(self):
         """Generate and save a PDF report of the simulation results"""
         if not hasattr(self, 'simulation_results'):
@@ -704,7 +821,6 @@ class JSONConfigEditor:
             return
             
         try:
-            # Get save location
             file_path = filedialog.asksaveasfilename(
                 defaultextension=".pdf",
                 filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
@@ -718,15 +834,14 @@ class JSONConfigEditor:
             doc = SimpleDocTemplate(
                 file_path,
                 pagesize=landscape(A4),
-                rightMargin=72,
-                leftMargin=72,
-                topMargin=72,
-                bottomMargin=72
+                rightMargin=36,
+                leftMargin=36,
+                topMargin=36,
+                bottomMargin=36
             )
     
-            # Container for PDF elements and image buffers
             elements = []
-            buffers = []  # Keep track of buffers
+            buffers = []
             
             # Styles
             styles = getSampleStyleSheet()
@@ -734,102 +849,102 @@ class JSONConfigEditor:
                 'CustomTitle',
                 parent=styles['Heading1'],
                 fontSize=24,
-                spaceAfter=30
+                spaceAfter=30,
+                textColor=colors.HexColor('#2C3E50')
+            )
+            heading_style = ParagraphStyle(
+                'CustomHeading',
+                parent=styles['Heading2'],
+                fontSize=16,
+                spaceAfter=20,
+                textColor=colors.HexColor('#2C3E50')
             )
             
-            # Add title
+            # Add title with date and time
             elements.append(Paragraph("Laser Amplification Simulation Report", title_style))
-            elements.append(Spacer(1, 20))
-    
-            # Add configuration file info
-            elements.append(Paragraph(f"Configuration file: {os.path.basename(self.config_file_path)}", styles['Normal']))
+            elements.append(Spacer(1, 10))
+            elements.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+            elements.append(Paragraph(f"Configuration: {os.path.basename(self.config_file_path)}", styles['Normal']))
             elements.append(Spacer(1, 20))
     
             # Process each AMP's results
             for amp_num in range(1, self.num_amps + 1):
                 amp_name = f"AMP{amp_num}"
                 
-                # Add AMP title
-                elements.append(Paragraph(f"{amp_name} Results", styles['Heading2']))
+                elements.append(Paragraph(f"{amp_name} Results", heading_style))
                 elements.append(Spacer(1, 10))
     
-                # Get text results from stored simulation results
+                # Create enhanced table for text results
                 text_content = self.simulation_results['outputs'].get(amp_name, '')
                 if text_content:
-                    # Create table from text results
-                    rows = []
-                    for line in text_content.split('\n'):
-                        if line.strip():
-                            rows.append([line])
-                    
-                    if rows:
-                        table = Table(rows, colWidths=[500])
-                        table.setStyle(TableStyle([
-                            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                            ('FONTSIZE', (0, 0), (-1, -1), 8),
-                            ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
-                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ]))
+                    table = self.create_amp_results_table(text_content)
+                    if table:
                         elements.append(table)
-                        elements.append(Spacer(1, 10))
+                        elements.append(Spacer(1, 20))
     
-                # Add figures if they exist
+                # Add graphs
                 if amp_name in self.simulation_results['figures']:
                     figures_dict = self.simulation_results['figures'][amp_name]
-                    elements.append(Paragraph(f"{amp_name} Graphs", styles['Heading3']))
-                    elements.append(Spacer(1, 10))
+                    elements.append(Paragraph("Simulation Graphs", styles['Heading3']))
+                    
+                    # Create a table for the graphs
+                    graph_data = []
+                    graph_row = []
                     
                     for title, fig in figures_dict.items():
-                        # Create a new buffer for each image
                         buf = BytesIO()
                         fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
                         buf.seek(0)
-                        buffers.append(buf)  # Keep buffer reference
+                        buffers.append(buf)
                         
-                        # Add title for each graph
-                        elements.append(Paragraph(title, styles['Heading4']))
-                        elements.append(Spacer(1, 5))
-                        
-                        # Add image to PDF
                         img = RLImage(buf)
-                        img.drawHeight = 2.5*inch
-                        img.drawWidth = 3.5*inch
-                        elements.append(img)
-                        elements.append(Spacer(1, 10))
+                        img.drawHeight = 2*inch
+                        img.drawWidth = 3*inch
+                        graph_row.append([Paragraph(title, styles['Heading4']), img])
+                        
+                        if len(graph_row) == 3:  # 3 graphs per row
+                            graph_data.append(graph_row)
+                            graph_row = []
+                    
+                    if graph_row:  # Add any remaining graphs
+                        while len(graph_row) < 3:
+                            graph_row.append(['', ''])
+                        graph_data.append(graph_row)
+                    
+                    if graph_data:
+                        graph_table = Table(graph_data, colWidths=[3.5*inch]*3)
+                        graph_table.setStyle(TableStyle([
+                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                            ('TOPPADDING', (0, 0), (-1, -1), 10),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                        ]))
+                        elements.append(graph_table)
                 
-                elements.append(Spacer(1, 20))
+                elements.append(PageBreak())
     
             # Add power balance results
             if 'power_balance' in self.simulation_results:
-                elements.append(Paragraph("Power Balance Results", styles['Heading2']))
+                elements.append(Paragraph("Power Balance Results", heading_style))
                 elements.append(Spacer(1, 10))
                 
                 power_content = self.simulation_results['power_balance']
                 if power_content:
-                    rows = [[line] for line in power_content.split('\n') if line.strip()]
-                    if rows:
-                        table = Table(rows, colWidths=[500])
-                        table.setStyle(TableStyle([
-                            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                            ('FONTSIZE', (0, 0), (-1, -1), 8),
-                            ('GRID', (0, 0), (-1, -1), 0.25, colors.grey),
-                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                        ]))
-                        elements.append(table)
+                    energy_table, power_table = self.create_power_balance_tables(power_content)
+                    elements.append(energy_table)
+                    elements.append(Spacer(1, 20))
+                    elements.append(power_table)
     
             # Build PDF
             doc.build(elements)
             
-            # Close all buffers after PDF is built
+            # Close buffers
             for buf in buffers:
                 buf.close()
             
             messagebox.showinfo("Success", f"Report saved successfully to {file_path}")
     
         except Exception as e:
-            # Close buffers even if there's an error
             for buf in buffers:
                 buf.close()
             messagebox.showerror("Error", f"Failed to save report: {str(e)}")
